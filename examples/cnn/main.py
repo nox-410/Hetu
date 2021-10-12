@@ -63,7 +63,7 @@ if __name__ == "__main__":
             else:
                 os.environ[key] = str(settings[key])  # type is str
 
-    assert args.model in ['alexnet', 'cnn_3_layers', 'lenet', 'logreg', 'lstm', 'mlp', 'resnet18', 'resnet34', 'rnn', 'vgg16', 'vgg19'], \
+    assert args.model in ['alexnet', 'cnn_3_layers', 'lenet', 'logreg', 'lstm', 'mlp', 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'rnn', 'vgg16', 'vgg19'], \
         'Model not supported!'
     model = eval('models.' + args.model)
 
@@ -129,7 +129,8 @@ if __name__ == "__main__":
         ht.Dataloader(train_set_y, args.batch_size, 'train'),
         ht.Dataloader(valid_set_y, args.batch_size, 'validate'),
     ])
-    if args.model in ['resnet18', 'resnet34', 'vgg16', 'vgg19'] and args.dataset == 'CIFAR100':
+    if args.model in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'vgg16', 'vgg19'] \
+        and args.dataset == 'CIFAR100':
         loss, y = model(x, y_, 100)
     else:
         loss, y = model(x, y_)

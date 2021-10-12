@@ -6,4 +6,4 @@ from .LeNet import lenet
 from .MLP import mlp
 from .RNN import rnn
 from .LSTM import lstm
-from .ResNet import resnet, resnet18, resnet34
+from .ResNet import resnet, resnet18, resnet34, resnet50, resnet101, resnet152

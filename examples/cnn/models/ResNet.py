@@ -1,13 +1,10 @@
 import hetu as ht
 from hetu import init
 from hetu import ndarray
-import torch
 
 def conv2d(x, in_channel, out_channel, stride=1, padding=1, kernel_size=3, name=''):
-    a = torch.nn.Conv2d(in_channel, out_channel, kernel_size, stride=stride)
-    weight = ht.Variable(name=name+'_weight', value=a.weight.detach().numpy(), ctx=ndarray.gpu(0))
-    # weight = init.he_normal(
-    #     shape=(out_channel, in_channel, kernel_size, kernel_size), name=name+'_weight')
+    weight = init.he_normal(
+        shape=(out_channel, in_channel, kernel_size, kernel_size), name=name+'_weight')
     x = ht.conv2d_op(x, weight, stride=stride, padding=padding)
     return x
 
@@ -91,14 +88,14 @@ def resnet(x, y_, num_layers=18, num_class=10):
         y: Variable(hetu.gpu_ops.Node.Node), shape (N, num_classes)
     '''
 
-    cur_channel = 16
+    cur_channel = 64
 
     x = conv2d(x, 3, cur_channel, stride=1, padding=1,
                name='resnet_initial_conv')
 
     x = batch_norm_with_relu(x, cur_channel, 'resnet_initial_bn')
 
-    channels = [16, 32, 64, 128]
+    channels = [64, 128, 256, 512]
 
     if num_layers == 18:
         layers = [2, 2, 2, 2]
