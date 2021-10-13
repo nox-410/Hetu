@@ -1,6 +1,7 @@
 import hetu as ht
 import numpy as np
 from .layer import GCN, SageConv
+from .data import GNNDataLoaderOp
 
 
 def convert_to_one_hot(vals, max_val=0):
@@ -13,10 +14,10 @@ def convert_to_one_hot(vals, max_val=0):
 
 
 def sparse_model(int_feature, hidden_layer_size, embedding_idx_max, embedding_width, num_classes, lr):
-    y_ = ht.GNNDataLoaderOp(lambda g: ht.array(convert_to_one_hot(
+    y_ = GNNDataLoaderOp(lambda g: ht.array(convert_to_one_hot(
         g.i_feat[:, -2], max_val=num_classes), ctx=ht.cpu()))
     mask_ = ht.Variable(name="mask_")
-    index_ = ht.GNNDataLoaderOp(lambda g: ht.array(
+    index_ = GNNDataLoaderOp(lambda g: ht.array(
         g.i_feat[:, 0:-2], ctx=ht.cpu()), ctx=ht.cpu())
     embedding = ht.init.random_normal(
         [embedding_idx_max, embedding_width], stddev=0.1)
@@ -39,10 +40,10 @@ def sparse_model(int_feature, hidden_layer_size, embedding_idx_max, embedding_wi
 
 
 def dense_model(feature_dim, hidden_layer_size, num_classes, lr, arch=GCN):
-    y_ = ht.GNNDataLoaderOp(lambda g: ht.array(convert_to_one_hot(
+    y_ = GNNDataLoaderOp(lambda g: ht.array(convert_to_one_hot(
         g.i_feat[:, -2], max_val=num_classes), ctx=ht.cpu()))
     mask_ = ht.Variable(name="mask_")
-    feat = ht.GNNDataLoaderOp(lambda g: ht.array(
+    feat = GNNDataLoaderOp(lambda g: ht.array(
         g.f_feat, ctx=ht.cpu()), ctx=ht.cpu())
 
     norm_adj_ = ht.Variable("message_passing", trainable=False, value=None)

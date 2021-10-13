@@ -1,6 +1,7 @@
 from gnn_tools.launcher import launch_graphmix_and_hetu_ps
 from gnn_model.utils import get_norm_adj, prepare_data
 from gnn_model.model import sparse_model
+from gnn_model.data import GNNDataLoaderOp
 from gnn_tools.log import SharedTrainingStat
 import graphmix
 
@@ -34,8 +35,8 @@ def train_main(args):
     idx = 0
     graph = graphs[idx]
     idx = (idx + 1) % ngraph
-    ht.GNNDataLoaderOp.step(graph)
-    ht.GNNDataLoaderOp.step(graph)
+    GNNDataLoaderOp.step(graph)
+    GNNDataLoaderOp.step(graph)
     executor = ht.Executor([loss, y, train_op], ctx=ctx, comm_mode='PS',
                            use_sparse_pull=False, cstable_policy=args.cache)
     nbatches = meta["train_node"] // (args.batch_size * nrank)
@@ -43,7 +44,7 @@ def train_main(args):
         for _ in range(nbatches):
             graph_nxt = graphs[idx]
             idx = (idx + 1) % ngraph
-            ht.GNNDataLoaderOp.step(graph_nxt)
+            GNNDataLoaderOp.step(graph_nxt)
             train_mask = np.bitwise_and(
                 graph.extra[:, 0], graph.i_feat[:, -1] == 1)
             eval_mask = np.bitwise_and(

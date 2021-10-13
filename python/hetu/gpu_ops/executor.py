@@ -7,7 +7,7 @@ from .. import ndarray
 from .._base import DNNL_LIB
 from ..cpu_links import array_set as cpu_array_set
 from .Variable import PlaceholderOp  # add for optimizer
-from ..dataloader import DataloaderOp, GNNDataLoaderOp
+from ..dataloader import is_dataloader
 from .AllReduceCommunicate import AllReduceCommunicateOp
 from .ParameterServerCommunicate import ParameterServerCommunicateOp, ParameterServerSparsePullOp, parameterServerSparsePull_op
 from .Sum import sum_op
@@ -550,7 +550,7 @@ class SubExecutor(object):
             self.node_ref_cnt[node] = None
 
         for node in self.topo_order:
-            if isinstance(node, DataloaderOp) or isinstance(node, GNNDataLoaderOp):
+            if is_dataloader(node):
                 self.dataloader_nodes.append(node)
             elif isinstance(node, PlaceholderOp):
                 if node.shape is None:
@@ -642,7 +642,7 @@ class SubExecutor(object):
             self.node_ref_cnt[node] = None
 
         for node in self.topo_order:
-            if isinstance(node, DataloaderOp) or isinstance(node, GNNDataLoaderOp):
+            if is_dataloader(node):
                 self.dataloader_nodes.append(node)
             elif isinstance(node, PlaceholderOp):
                 if node.shape is None:
@@ -757,7 +757,7 @@ class SubExecutor(object):
                 self.node_to_arr_map[node] = self.config.placeholder_to_arr_map[node]
             elif node not in self.node_to_arr_map:
                 self.node_to_arr_map[node] = None
-        elif not isinstance(node, DataloaderOp) and not isinstance(node, GNNDataLoaderOp):
+        elif not is_dataloader(node):
             # add for OptimizerOp and ParameterServerOp
             if shape is None:
                 self.node_to_arr_map[node] = None
@@ -795,7 +795,7 @@ class SubExecutor(object):
                     self.node_to_arr_map[node] = self.config.placeholder_to_arr_map[node]
                 elif node not in self.node_to_arr_map:
                     self.node_to_arr_map[node] = None
-            elif not isinstance(node, DataloaderOp) and not isinstance(node, GNNDataLoaderOp):
+            elif not is_dataloader(node):
                 # add for OptimizerOp and ParameterServerOp
                 if shape is None:
                     self.node_to_arr_map[node] = None

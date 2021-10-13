@@ -17,7 +17,7 @@ from .OnesLike import OnesLikeOp
 from ..communicator.mpi_nccl_comm import ncclDataType_t, GroupStart, GroupEnd
 from .ParameterServerCommunicate import ParameterServerCommunicateOp, ParameterServerSparsePullOp, parameterServerSparsePull_op
 from .Variable import PlaceholderOp  # add for optimizer
-from ..dataloader import DataloaderOp, GNNDataLoaderOp
+from ..dataloader import is_dataloader
 from ..optimizer import OptimizerOp
 from .AllReduceCommunicate import AllReduceCommunicateOp
 from .EmbeddingLookUp import EmbeddingLookUp, EmbeddingLookUp_Gradient
@@ -137,7 +137,7 @@ class SubExecutor4Pipedream(object):
         self.dataloader_nodes = []
         self.computing_nodes = []
         for node in self.topo_order:
-            if isinstance(node, DataloaderOp) or isinstance(node, GNNDataLoaderOp):
+            if is_dataloader(node):
                 self.dataloader_nodes.append(node)
             elif isinstance(node, PlaceholderOp):
                 if node.shape is None:
@@ -213,7 +213,7 @@ class SubExecutor4Pipedream(object):
                     else:
                         raise ValueError
                     mp[node] = copied
-            elif not isinstance(node, DataloaderOp) and not isinstance(node, GNNDataLoaderOp):
+            elif not is_dataloader(node):
                 # add for OptimizerOp and ParameterServerOp
                 if shape is None:
                     mp[node] = None
