@@ -3,8 +3,10 @@ from hetu import init
 from hetu import ndarray
 
 def conv2d(x, in_channel, out_channel, stride=1, padding=1, kernel_size=3, name=''):
-    weight = init.he_normal(
-        shape=(out_channel, in_channel, kernel_size, kernel_size), name=name+'_weight')
+    limit = 1 / (kernel_size * kernel_size * in_channel) ** 0.5
+    weight = init.random_uniform(
+        shape=(out_channel, in_channel, kernel_size, kernel_size),
+        minval=-limit, maxval=limit, name=name+'_weight')
     x = ht.conv2d_op(x, weight, stride=stride, padding=padding)
     return x
 
@@ -12,14 +14,14 @@ def conv2d(x, in_channel, out_channel, stride=1, padding=1, kernel_size=3, name=
 def batch_norm_with_relu(x, hidden, name):
     scale = init.ones(shape=(1, hidden, 1, 1), name=name+'_scale')
     bias = init.zeros(shape=(1, hidden, 1, 1), name=name+'_bias')
-    x = ht.batch_normalization_op(x, scale, bias, momentum=0.9, eps=1e-5)
+    x = ht.batch_normalization_op(x, scale, bias, momentum=0.1, eps=1e-5)
     x = ht.relu_op(x)
     return x
 
 def batch_norm(x, hidden, name):
     scale = init.ones(shape=(1, hidden, 1, 1), name=name+'_scale')
     bias = init.zeros(shape=(1, hidden, 1, 1), name=name+'_bias')
-    x = ht.batch_normalization_op(x, scale, bias, momentum=0.9, eps=1e-5)
+    x = ht.batch_normalization_op(x, scale, bias, momentum=0.1, eps=1e-5)
     return x
 
 def bottleneck(x, input_channel, channel, stride=1, name=''):
@@ -68,7 +70,7 @@ def basic_block(x, input_channel, output_channel, stride=1, name=''):
     return x, output_channel
 
 def fc(x, shape, name):
-    weight = init.he_normal(shape=shape, name=name+'_weight')
+    weight = init.xavier_uniform(shape=shape, name=name+'_weight')
     bias = init.zeros(shape=shape[-1:], name=name+'_bias')
     x = ht.matmul_op(x, weight)
     x = x + ht.broadcastto_op(bias, x)

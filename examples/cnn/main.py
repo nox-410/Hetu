@@ -6,10 +6,10 @@ import argparse
 import json
 import logging
 from time import time
+from models.data import CIFAR100DataLoader
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 
 def print_rank0(msg):
     if device_id == 0:
@@ -112,23 +112,24 @@ if __name__ == "__main__":
         # x_shape = (args.batch_size, 3, 32, 32)
         # y_shape = (args.batch_size, 10)
     elif dataset == 'CIFAR100':
-        train_set_x, train_set_y, valid_set_x, valid_set_y = ht.data.normalize_cifar(
-            num_class=100)
-        # train_set_x: (50000, 3, 32, 32), train_set_y: (50000, 100)
-        # valid_set_x: (10000, 3, 32, 32), valid_set_y: (10000, 100)
+        pass
     else:
         raise NotImplementedError
 
     # model definition
     print_rank0('Building model {}'.format(args.model))
-    x = ht.dataloader_op([
-        ht.Dataloader(train_set_x, args.batch_size, 'train'),
-        ht.Dataloader(valid_set_x, args.batch_size, 'validate'),
-    ])
-    y_ = ht.dataloader_op([
-        ht.Dataloader(train_set_y, args.batch_size, 'train'),
-        ht.Dataloader(valid_set_y, args.batch_size, 'validate'),
-    ])
+    if dataset == 'CIFAR100':
+        x = CIFAR100DataLoader(args.batch_size, image=True)
+        y_ = CIFAR100DataLoader(args.batch_size, image=False)
+    else:
+        x = ht.dataloader_op([
+            ht.Dataloader(train_set_x, args.batch_size, 'train'),
+            ht.Dataloader(valid_set_x, args.batch_size, 'validate'),
+        ])
+        y_ = ht.dataloader_op([
+            ht.Dataloader(train_set_y, args.batch_size, 'train'),
+            ht.Dataloader(valid_set_y, args.batch_size, 'validate'),
+        ])
     if args.model in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'vgg16', 'vgg19'] \
         and args.dataset == 'CIFAR100':
         loss, y = model(x, y_, 100)
@@ -155,11 +156,9 @@ if __name__ == "__main__":
         correct_predictions = []
         for minibatch_index in range(n_train_batches):
             loss_val, predict_y, y_val, _ = executor.run(
-                'train', eval_node_list=[loss, y, y_, train_op])
+                'train', eval_node_list=[loss, y, y_, train_op], convert_to_numpy_ret_vals=True)
             # Loss for this minibatch
-            predict_y = predict_y.asnumpy()
-            y_val = y_val.asnumpy()
-            loss_all += loss_val.asnumpy()
+            loss_all += loss_val
             batch_num += 1
             # Predict accuracy for this minibatch
             correct_prediction = np.equal(
