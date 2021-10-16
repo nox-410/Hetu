@@ -2,7 +2,7 @@ from .ndarray import cpu, gpu, rcpu, rgpu, DLContext, is_gpu_ctx
 import contextlib
 import re
 import numpy as np
-
+import socket
 
 class DeviceGroup(object):
     def __init__(self, ctxs):
@@ -110,7 +110,9 @@ class DeviceGroup(object):
         return hash(self) == hash(other)
 
     def get_sorted(self):
-        return DeviceGroup(sorted(self._contexts, key=lambda x: hash(x.hostname) + hash(x.device_id)))
+        return DeviceGroup(
+            sorted(self._contexts,
+                key=lambda x: (x.hostname if x.hostname != "localhost" else socket.gethostname()) + str(x.device_id)))
 
 
 class ContextStack(object):
@@ -337,7 +339,7 @@ def traverse_dfs(node, node_strategy, devices, nrank):
 
 
 def infer_states(node_list):
-    from .dataloader import DataloaderOp
+    from .dataloader import is_dataloader
     from .optimizer import OptimizerOp
     from .gpu_ops.Dispatch import DispatchOp, DispatchGradientOp
     from .gpu_ops.Variable import PlaceholderOp
@@ -348,7 +350,7 @@ def infer_states(node_list):
         visited[node] = True
         nonlocal cnt
         single = False
-        if not isinstance(node, (DataloaderOp, OptimizerOp, DispatchOp, DispatchGradientOp)):
+        if not (is_dataloader(node) or isinstance(node, (OptimizerOp, DispatchOp, DispatchGradientOp))):
             node_cur_state_map[node] = NodeStatus(
                 dev_num=node.raw_ctx.mp_device_num)
             node.get_default_state(
@@ -370,7 +372,7 @@ def infer_states(node_list):
         if node in visited:
             return
         visited[node] = True
-        if isinstance(node, DataloaderOp):
+        if is_dataloader(node):
             pass
         elif isinstance(node, OptimizerOp):
             for n in node.inputs:
@@ -464,7 +466,7 @@ def infer_states(node_list):
 
 
 def assign_context_by_traverse_nodes(node_list, ctx, mpi_comm, p2p_stream):
-    from .dataloader import DataloaderOp
+    from .dataloader import is_dataloader
     from .optimizer import OptimizerOp
     from .gpu_ops.PipelineSend import pipeline_send_op
     from .gpu_ops.PipelineReceive import pipeline_receive_op
@@ -734,7 +736,7 @@ def assign_context_by_traverse_nodes(node_list, ctx, mpi_comm, p2p_stream):
             return
         mp_index_map[node] = -1
         dp_index_map[node] = -1
-        if isinstance(node, DataloaderOp):
+        if is_dataloader(node):
             layer_indices[node] = layer_id
             layer_id += 1
             return
@@ -827,7 +829,7 @@ def assign_context_by_traverse_nodes(node_list, ctx, mpi_comm, p2p_stream):
             mp_index_map[node] = mp_index
             dp_index_map[node] = dp_index
             for i, n in enumerate(node.inputs):
-                if isinstance(n, DataloaderOp):
+                if is_dataloader(n):
                     if n not in dp_index_map:
                         layer_indices[n] = layer_id
                         layer_id += 1
@@ -841,7 +843,7 @@ def assign_context_by_traverse_nodes(node_list, ctx, mpi_comm, p2p_stream):
                         real_node.reshape_in_mp(node_status.map_dev_to_index(
                             mp_index_map[real_node]), node_status.state)
             for i, n in enumerate(node.inputs):
-                if isinstance(n, DataloaderOp):
+                if is_dataloader(n):
                     if dp_index >= 0 and n in node_list and n not in my_eval_nodes:
                         my_eval_nodes.append(n)
                     continue

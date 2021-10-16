@@ -234,7 +234,7 @@ class OneWeirdTrick4CNN(Strategy):
         from .gpu_ops.SoftmaxCrossEntropy import SoftmaxCrossEntropyOp
         from .gpu_ops.SoftmaxCrossEntropySparse import SoftmaxCrossEntropySparseOp
         from .gpu_ops.Broadcast import BroadcastToOp
-        from .dataloader import DataloaderOp
+        from .dataloader import is_dataloader
 
         def set_raw_context(node, ctx):
             if node in visited:
@@ -248,7 +248,7 @@ class OneWeirdTrick4CNN(Strategy):
                 set_raw_context(node.inputs[0], ctx)
                 node.inputs[0] = ht.dispatch(
                     node.inputs[0], {1: self.num_ctxs})
-            elif isinstance(node, Conv2dOp) and isinstance(node.inputs[0], (DataloaderOp, PlaceholderOp)):
+            elif isinstance(node, Conv2dOp) and (isinstance(node.inputs[0], PlaceholderOp) or is_dataloader(node.inputs[0])):
                 set_raw_context(node.inputs[0], self.raw_ctx)
                 set_raw_context(node.inputs[1], self.raw_ctx)
                 node.inputs[0] = ht.dispatch(
