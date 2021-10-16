@@ -442,7 +442,8 @@ class SubExecutor4Pipedream(object):
                 for n in self.global_eval_nodes:
                     if n in self.batch_to_tensor_maps[batch_id]:
                         r = self.batch_to_tensor_maps[batch_id][n]
-                        tmp_results.append(r.asnumpy() if r is not None else None)
+                        if r is not None:
+                            tmp_results.append(r.asnumpy())
                 results_list.append(tmp_results)
 
             # after update, mark the vacant maps

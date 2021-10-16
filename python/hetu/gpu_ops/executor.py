@@ -1133,8 +1133,9 @@ def get_pipeline_stage_info(node_list, ctx):
         return len(w0) and len(w1) and w0 != w1
 
     def _traverse(node):
-        if node not in stage_index:
-            stage_index[node] = 0
+        if node in stage_index:
+            return
+        stage_index[node] = 0
         for n in node.inputs:
             _traverse(n)
             if _is_pipeline_articulation(node, n):

@@ -10,3 +10,4 @@ CIFAR_10/
 CIFAR_100/
 update.sh
 cmake/config.cmake
+events.out.tfevents.*
