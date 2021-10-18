@@ -18,10 +18,7 @@ class ParameterServerCommunicateOp(Op):
         self.parameter = parameter
         self.optimizer = optimizer
         # the optimizer not implemented yet! only SGD is supported, calculate on worker
-        # the optimizer only support fixed learning rate, no scheduler supported.
         # TODO: implement optimizer on Servers(already implemented, not in use) and Caches(not implemented yet)
-        # TODO: implement learning rate scheduler
-        self.learning_rate = -optimizer[1][0]
         self.ps_id = ctypes.c_int(self.parameter.id)
         self.psevent = None
 
@@ -56,14 +53,14 @@ class ParameterServerCommunicateOp(Op):
         self._update_event(self._push(input_vals[0], stream_handle))
 
     def _mult_lr_sparse_cpu(self, input_val, stream_handle):
-        input_val.values[:] = input_val.values.asnumpy() * self.learning_rate
+        input_val.values[:] = input_val.values.asnumpy() * -self.optimizer.learning_rate
 
     def _mult_lr_dense_cpu(self, input_val, stream_handle):
-        input_val[:] = input_val.asnumpy() * self.learning_rate
+        input_val[:] = input_val.asnumpy() * -self.optimizer.learning_rate
 
     def _mult_lr_dense_gpu(self, input_val, stream_handle):
         matrix_elementwise_multiply_by_const(
-            input_val, self.learning_rate, input_val, stream_handle)
+            input_val, -self.optimizer.learning_rate, input_val, stream_handle)
 
     def _push_pull_cache(self, input_val, stream_handle):
         return self.cache.embedding_push_pull(

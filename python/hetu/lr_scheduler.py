@@ -105,7 +105,9 @@ class ReduceOnPlateauScheduler(FixedScheduler):
         self.last_value = None
         self.reach_end = False
 
-    def step(self, value):
+    def step(self, value=None):
+        if not value:
+            return
         if self.reach_end:
             return self.learning_rate
         if self.step_in_cooldown >= 0:
