@@ -14,12 +14,12 @@ class Optimizer(object):
     """Optimizers."""
 
     def __init__(self, learning_rate, l2reg=0):
-        if isinstance(learning_rate, FixedScheduler):
-            self.lr_sched = learning_rate
+        if isinstance(learning_rate, (int, float)):
+            self.lr_sched = FixedScheduler(abs(learning_rate))
         else:
-            assert learning_rate >= 0, \
-                "learning rate must be non-negative"
-            self.lr_sched = FixedScheduler(learning_rate)
+            assert hasattr(learning_rate, "get") and hasattr(learning_rate, "step"), \
+                "A learning rate scheduler should define method 'get' and 'step'."
+            self.lr_sched = learning_rate
         # now we don't support l2 regularizer for sparse updates
         # TODO: support l2 regularizer for sparse updates
         # now we don't support l2 regularizer for PS mode parameters
@@ -33,6 +33,10 @@ class Optimizer(object):
     @property
     def learning_rate(self):
         return self.lr_sched.get()
+
+    def step(self):
+        # modify learning rate for the next iteration
+        self.lr_sched.step()
 
     @staticmethod
     def get_var_list(loss):

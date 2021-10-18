@@ -995,12 +995,13 @@ class SubExecutor(object):
                     if isinstance(node.event, Event):
                         # for d2h op / eval nodes / nodes before [allreduce or ps nodes or pipelinesend nodes]
                         node.event.record(self.comp_stream)
-
                 else:
                     node.compute(input_vals, node_val, self.comp_stream)
                     if isinstance(node.event, Event):
                         # for d2h op / eval nodes / nodes before [allreduce or ps nodes or pipelinesend nodes]
                         node.event.record(self.comp_stream)
+                if isinstance(node, OptimizerOp):
+                    node.optimizer.step() # step optimizer learning rate
 
             if self.dynamic_memory:
                 # free nodes whose reference count is 0 when dynamic_memory == True

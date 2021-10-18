@@ -73,7 +73,8 @@ def basic_block(x, input_channel, output_channel, stride=1, name=''):
     return x, output_channel
 
 def fc(x, shape, name):
-    weight = init.xavier_uniform(shape=shape, name=name+'_weight')
+    limit = 1 / shape[0] ** 0.5
+    weight = init.random_uniform(shape=shape, minval=-limit, maxval=limit, name=name+'_weight')
     bias = init.zeros(shape=shape[-1:], name=name+'_bias')
     x = ht.matmul_op(x, weight)
     x = x + ht.broadcastto_op(bias, x)

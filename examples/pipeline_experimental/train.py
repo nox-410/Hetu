@@ -8,7 +8,7 @@ import numpy as np
 
 from device_list import *
 from resnet import resnet, get_resnet_partition
-from utils import get_partition, get_tensorboard_writer
+from utils import get_partition, get_tensorboard_writer, get_lr_scheduler
 
 def validate(executor, val_batch_num):
     res = []
@@ -31,6 +31,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_every', type=int, default=500)
     parser.add_argument('--batch-size', type=int, default=128)
     parser.add_argument('--learning-rate', type=float, default=0.1)
+    parser.add_argument('--weight-decay', type=float, default=5e-4)
     parser.add_argument('--dataset', default='cifar100')
     parser.add_argument('--model', default='resnet18')
     parser.add_argument('--name', type=str, default="")
@@ -44,19 +45,24 @@ if __name__ == "__main__":
     num_data_parallel = len(device_list[0])
     args.learning_rate /= num_data_parallel
 
-    loss, y, y_ = resnet(args.dataset, args.batch_size, num_layers, device_list)
-
-    opt = ht.optim.SGDOptimizer(learning_rate=args.learning_rate)
-    with ht.context(device_list[-1]):
-        train_op = opt.minimize(loss)
-        executor = ht.Executor({"train" : [loss, y, y_, train_op], "validate" : [loss, y, y_]}, seed=0, pipeline="pipedream")
-
     if args.dataset == "cifar100":
         num_train_image, num_eval_image = 50000, 10000
     elif args.dataset == "imagenet":
         num_train_image, num_eval_image = 1281167, 50000
     train_batch_num = num_train_image // (args.batch_size * num_data_parallel)
     val_batch_num = num_eval_image // (args.batch_size * num_data_parallel)
+
+    loss, y, y_ = resnet(args.dataset, args.batch_size, num_layers, device_list)
+
+    if args.dataset == "cifar100":
+        lr_scheduler = get_lr_scheduler(args.learning_rate, 0.2, 60 * train_batch_num, train_batch_num)
+    elif args.dataset == "imagenet":
+        lr_scheduler = None # TODO
+
+    opt = ht.optim.SGDOptimizer(learning_rate=lr_scheduler, l2reg=args.weight_decay)
+    with ht.context(device_list[-1]):
+        train_op = opt.minimize(loss)
+        executor = ht.Executor({"train" : [loss, y, y_, train_op], "validate" : [loss, y, y_]}, seed=0, pipeline="pipedream")
 
     if executor.config.pipeline_dp_rank == 0:
         writer = get_tensorboard_writer(args.name)
