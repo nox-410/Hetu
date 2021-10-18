@@ -91,11 +91,13 @@ def resnet(x, y_, num_layers=18, num_class=10):
     '''
 
     cur_channel = 64
-
-    x = conv2d(x, 3, cur_channel, stride=1, padding=1,
-               name='resnet_initial_conv')
-
-    x = batch_norm_with_relu(x, cur_channel, 'resnet_initial_bn')
+    if num_class == 1000: # imagenet
+        x = conv2d(x, 3, cur_channel, kernel_size=7, stride=2, padding=1, name='resnet_initial_conv')
+        x = batch_norm_with_relu(x, cur_channel, 'resnet_initial_bn')
+        x = ht.max_pool2d_op(x, 3, 3, padding=1, stride=2)
+    else:
+        x = conv2d(x, 3, cur_channel, stride=1, padding=1, name='resnet_initial_conv')
+        x = batch_norm_with_relu(x, cur_channel, 'resnet_initial_bn')
 
     channels = [64, 128, 256, 512]
 
