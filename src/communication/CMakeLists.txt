@@ -8,7 +8,7 @@ find_package(NCCL 2.8 REQUIRED)
 
 find_package(MPI 3.1)
 if(NOT MPI_FOUND)
-    message(STATUS "MPI with version >= 3.1 not Found, Preparing OpenMPI ...")
+    message(STATUS "MPI with version >= 4 not Found, Preparing OpenMPI ...")
     FetchContent_Declare(openmpi URL https://download.open-mpi.org/release/open-mpi/v4.0/openmpi-4.0.3.tar.gz)
     message(STATUS "Fetching openmpi source code ...")
     FetchContent_MakeAvailable(openmpi)

@@ -427,7 +427,7 @@ class SubExecutor4Pipedream(object):
                         for weight_node in self.config.placeholder_to_arr_map:
                             self.copy_latest_weight(weight_node)
                         node.compute(input_vals, node_val, self.comp_stream, self.batch_to_tensor_maps[batch_id])
-
+                    node.optimizer.step()
                 else:
                     node.compute(input_vals, node_val, self.comp_stream)
                     if isinstance(node.event, Event):

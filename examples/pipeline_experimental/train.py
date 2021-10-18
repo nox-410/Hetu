@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     num_layers = 18
     model_partition = get_resnet_partition(num_layers)
-    device_list = get_partition(device_local, model_partition)
+    device_list = get_partition(device_remote, model_partition)
     num_data_parallel = len(device_list[0])
     args.learning_rate /= num_data_parallel
 
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     if args.dataset == "cifar100":
         lr_scheduler = get_lr_scheduler(args.learning_rate, 0.2, 60 * train_batch_num, train_batch_num)
     elif args.dataset == "imagenet":
-        lr_scheduler = None # TODO
+        lr_scheduler = get_lr_scheduler(args.learning_rate, 0.1, 30 * train_batch_num, train_batch_num)
 
     opt = ht.optim.SGDOptimizer(learning_rate=lr_scheduler, l2reg=args.weight_decay)
     with ht.context(device_list[-1]):
@@ -86,14 +86,14 @@ if __name__ == "__main__":
                     writer.add_scalar('Train/loss', iter_result[0][0], n_iter + i)
                     writer.add_scalar('Train/acc', correct_prediction, n_iter + i)
 
-            print("TRAIN avg loss {}, acc {}, time {}".format(
-                    np.mean(loss_value), np.mean(accuracy), time_used))
+            print(iteration, "TRAIN avg loss {:.4f}, acc {:.4f}, lr {:.4f}, time {:.4f}".format(
+                    np.mean(loss_value), np.mean(accuracy), opt.learning_rate, time_used))
 
         n_iter += args.log_every
 
         val_loss, val_acc = validate(executor, val_batch_num)
         if val_loss:
-            print("EVAL avg loss {}, acc {}".format(val_loss, val_acc))
+            print(iteration, "EVAL avg loss {:.4f}, acc {:.4f}".format(val_loss, val_acc))
             if writer:
                 writer.add_scalar('Validation/loss', val_loss, iteration)
                 writer.add_scalar('Validation/acc', val_acc, iteration)
