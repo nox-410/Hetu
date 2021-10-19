@@ -487,9 +487,12 @@ class SubExecutor(object):
         self.name = name
         self.eval_node_list = eval_node_list
         self.config = config
-        inference = not any([isinstance(node, OptimizerOp)
-                             for node in eval_node_list])
-        self.inference = inference
+        self.opt = None
+        for node in eval_node_list:
+            if isinstance(node, OptimizerOp):
+                self.opt = node
+
+        self.inference = (self.opt == None)
 
         if config.pipeline:
             assert self.inference
@@ -503,7 +506,7 @@ class SubExecutor(object):
                     self.eval_node_list.append(node)
             self.global_eval_nodes = eval_node_list
 
-        if inference == False:
+        if self.inference == False:
             self.topo_order = find_topo_sort(self.eval_node_list)
         else:  # in inference phase
             if self.config.use_sparse_pull == True or self.config.cstable_policy is not None:
@@ -978,12 +981,16 @@ class SubExecutor(object):
                 if isinstance(node, (ParameterServerCommunicateOp, ParameterServerSparsePullOp)):
                     # Here we use d2h stream in ps op, since the stream is used for d2h data transfer.
                     # Please take care at this part.
+                    self.opt.optimizer.process_gradient(node.parameter, input_vals[0], self.d2h_stream)
                     node.compute(input_vals, node_val, self.d2h_stream)
 
                 elif isinstance(node, AllReduceCommunicateOp):
                     node.compute(input_vals, node_val, self.nccl_stream)
 
                 elif isinstance(node, DataH2DOp):
+                    if self.opt:
+                        # Add for PS case, so we can use optimizer on GPU.
+                        self.opt.optimizer.update_tensors_version({node.inputs[0] : node_val})
                     node.compute(input_vals, node_val, self.h2d_stream)
 
                 elif isinstance(node, (DataD2HOp, DataD2HSparseOp)):

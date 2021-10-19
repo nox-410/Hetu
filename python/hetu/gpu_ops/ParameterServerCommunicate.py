@@ -32,35 +32,21 @@ class ParameterServerCommunicateOp(Op):
         return evt
 
     def _compute_asp_prefetch(self, input_vals, output_val, stream_handle=None):
-        self._mult_lr(input_vals[0], stream_handle)
         self._update_event(self._push_pull(input_vals[0], stream_handle))
 
     def _compute_ssp_prefetch(self, input_vals, output_val, stream_handle=None):
-        self._mult_lr(input_vals[0], stream_handle)
         self._wait(self._push(input_vals[0], stream_handle))
         self.comm.ssp_sync(self.ps_id, self.ssp_version)
         self._update_event(self._pull())
         self.ssp_version += 1
 
     def _compute_bsp_prefetch(self, input_vals, output_val, stream_handle=None):
-        self._mult_lr(input_vals[0], stream_handle)
         self._wait(self._push(input_vals[0], stream_handle))
         self.comm.BarrierWorker()
         self._update_event(self._pull())
 
     def _compute_no_prefetch(self, input_vals, output_val, stream_handle=None):
-        self._mult_lr(input_vals[0], stream_handle)
         self._update_event(self._push(input_vals[0], stream_handle))
-
-    def _mult_lr_sparse_cpu(self, input_val, stream_handle):
-        input_val.values[:] = input_val.values.asnumpy() * -self.optimizer.learning_rate
-
-    def _mult_lr_dense_cpu(self, input_val, stream_handle):
-        input_val[:] = input_val.asnumpy() * -self.optimizer.learning_rate
-
-    def _mult_lr_dense_gpu(self, input_val, stream_handle):
-        matrix_elementwise_multiply_by_const(
-            input_val, -self.optimizer.learning_rate, input_val, stream_handle)
 
     def _push_pull_cache(self, input_val, stream_handle):
         return self.cache.embedding_push_pull(
@@ -141,7 +127,6 @@ class ParameterServerCommunicateOp(Op):
             from hetu.cstable import CacheSparseTable
             self._wait = self._wait_cache
             self._update_event = self._update_event_cache
-            self._mult_lr = self._mult_lr_sparse_cpu
             if config.bsp == 0 and config.prefetch:
                 self._push = self._push_cache
                 self._pull = self._pull_cache
@@ -200,22 +185,18 @@ class ParameterServerCommunicateOp(Op):
         self._wait = self._wait_ps
         self._update_event = self._update_event_ps
         if self_sparse:
-            self._mult_lr = self._mult_lr_sparse_cpu
             self._push = self._push_sparse_cpu
             self._pull = self._pull_sparse
             self._push_pull = self._push_pull_sparse_cpu
         elif self.parameter.is_embed:
-            self._mult_lr = self._mult_lr_sparse_cpu
             self._push = self._push_sparse_cpu
             self._pull = self._pull_dense
             self._push_pull = self._push_pull_halfsparse_cpu
         elif self.on_cpu:
-            self._mult_lr = self._mult_lr_dense_cpu
             self._push = self._push_dense_cpu
             self._pull = self._pull_dense
             self._push_pull = self._push_pull_dense_cpu
         else:
-            self._mult_lr = self._mult_lr_dense_gpu
             self._push = self._push_dense_gpu
             self._pull = self._pull_dense
             self._push_pull = self._push_pull_dense_gpu
@@ -295,9 +276,6 @@ def parameterServerCommunicate_op(node, parameter, optimizer):
         The Node to do allreduce
     parameter: Node
         The parameter Node that corresponding to the gradient
-    learning_rate: float
-        Adjusted learning rate
-
     Returns:
     ----
     A new Node instance created by Op.

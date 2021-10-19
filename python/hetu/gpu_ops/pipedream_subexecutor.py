@@ -248,6 +248,7 @@ class SubExecutor4Pipedream(object):
         cur_batch_id = min(self.batch_to_tensor_maps.keys())
         grad_tensor = self.batch_to_tensor_maps[cur_batch_id][ps_node.inputs[0]]
         dst_tensor = self.grad_accum_map[ps_node.parameter]
+        self.opt.optimizer.process_gradient(ps_node.parameter, grad_tensor, self.comp_stream)
         if init_value:
             dst_tensor._async_copyfrom(grad_tensor, self.comp_stream)
         else:
@@ -260,13 +261,8 @@ class SubExecutor4Pipedream(object):
             current_weight = self.batch_to_tensor_maps[cur_batch_id][h2d_node]
             if cur_batch_id != last_fwd_batch_id:
                 current_weight._async_copyfrom(latest_weight, self.comp_stream)
-
-            self.run_optimizer(current_weight, grad_tensor)
+            self.opt.optimizer.apply_gradient(ps_node.parameter, grad_tensor, self.comp_stream)
             self.skip_h2d.add(h2d_node)
-
-    def run_optimizer(self, weight_tensor, grad_tensor):
-        matrix_elementwise_multiply_by_const(grad_tensor, -self.opt.optimizer.learning_rate, grad_tensor, self.comp_stream)
-        matrix_elementwise_add(weight_tensor, grad_tensor, weight_tensor, stream=self.comp_stream)
 
     def run(self, eval_node_list, feed_dict_list, convert_to_numpy_ret_vals, batch_num):
         rank = self.config.pipeline_rank
@@ -334,7 +330,13 @@ class SubExecutor4Pipedream(object):
             else:
                 in_flight_batches.pop(0)
             # renew optimizer state
-            self.opt.optimizer.update_tensors_version(self.batch_to_tensor_maps[batch_id])
+            # Note : under PS case, we set weight tensor to the corresponding h2d node
+            if self.config.pipeline == "hetpipe":
+                self.opt.optimizer.update_tensors_version(
+                    dict([(weight, self.batch_to_tensor_maps[batch_id][h2d])
+                        for (weight, h2d) in self.h2d_map.items()]))
+            else:
+                self.opt.optimizer.update_tensors_version(self.batch_to_tensor_maps[batch_id])
             # compute, same logic for backward and forward
             for node in self.computing_nodes:
                 if node not in cur_topo:
@@ -395,11 +397,12 @@ class SubExecutor4Pipedream(object):
                             self.preduce_partner = self.preduce.get_partner(
                                 max_worker=self.config.nrank//self.config.pipeline_nrank)
                         weight_node = self.all_reduce_param_map[node]
+                        self.opt.optimizer.process_gradient(weight_node, input_vals[0], self.comp_stream)
                         self.copy_latest_weight(weight_node)
-                        weight_tensor = self.config.placeholder_to_arr_map[weight_node]
-                        self.run_optimizer(weight_tensor, input_vals[0])
+                        self.opt.optimizer.apply_gradient(weight_node, input_vals[0], self.comp_stream)
                         self.comp_stream.sync()
-                        self.preduce.preduce(weight_tensor, self.preduce_partner, stream=self.nccl_stream)
+                        self.preduce.preduce(self.config.placeholder_to_arr_map[weight_node],
+                            self.preduce_partner, stream=self.nccl_stream)
                         node.event.record(self.nccl_stream)
                     else:
                         node.compute(input_vals, node_val, self.nccl_stream)

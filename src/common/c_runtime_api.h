@@ -587,15 +587,15 @@ HETUSYS_EXTERN_C {
                                  DLStreamHandle stream_handle);
 
     int MomentumOptimizerUpdate(
-        DLArrayHandle param, const DLArrayHandle grad, DLArrayHandle velocity,
-        float lr, float momentum, bool nesterov, DLStreamHandle stream_handle);
+        DLArrayHandle param, DLArrayHandle grad, DLArrayHandle velocity,
+        float lr, float momentum, bool nesterov, bool only_process_grad, DLStreamHandle stream_handle);
     int MomentumOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
         const DLArrayHandle grad_values, DLArrayHandle velocity, float lr,
         float momentum, bool nesterov, DLStreamHandle stream_handle);
 
-    int AdaGradOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
-                               DLArrayHandle acc, float lr, float eps,
+    int AdaGradOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
+                               DLArrayHandle acc, float lr, float eps, bool only_process_grad,
                                DLStreamHandle stream_handle);
     int AdaGradOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
@@ -603,9 +603,9 @@ HETUSYS_EXTERN_C {
         DLStreamHandle stream_handle);
 
     int AdamOptimizerUpdate(
-        DLArrayHandle param, const DLArrayHandle grad, DLArrayHandle expavg,
+        DLArrayHandle param, DLArrayHandle grad, DLArrayHandle expavg,
         DLArrayHandle expavgsq, float lr, float beta1, float beta2,
-        float beta1t, float beta2t, float eps, DLStreamHandle stream_handle);
+        float beta1t, float beta2t, float eps, bool only_process_grad, DLStreamHandle stream_handle);
     int AdamOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
         const DLArrayHandle grad_values, DLArrayHandle expavg,
