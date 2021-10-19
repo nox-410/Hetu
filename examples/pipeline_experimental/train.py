@@ -6,7 +6,7 @@ import time
 import argparse
 import numpy as np
 
-from device_list import *
+from device_list import my_device, add_cpu_ctx
 from resnet import resnet, get_resnet_partition
 from utils import get_partition, get_tensorboard_writer, get_lr_scheduler
 
@@ -34,15 +34,24 @@ if __name__ == "__main__":
     parser.add_argument('--weight-decay', type=float, default=5e-4)
     parser.add_argument('--dataset', default='cifar100')
     parser.add_argument('--model', default='resnet18')
+    parser.add_argument('--pipeline', type=str, default="pipedream")
+    parser.add_argument('--preduce', action='store_true')
     parser.add_argument('--name', type=str, default="")
     args = parser.parse_args()
+
+    assert args.pipeline in ["pipedream", "hetpipe"]
+    assert args.dataset in ["cifar100", "imagenet"]
+    assert args.model in ["resnet18", "resnet34", "resnet50", "resnet101", "resnet152"]
     ht.worker_init()
     np.random.seed(0)
 
     num_layers = 18
     model_partition = get_resnet_partition(num_layers)
-    device_list = get_partition(device_remote, model_partition)
-    num_data_parallel = len(device_list[0])
+    num_data_parallel = len(my_device[0])
+    if args.pipeline == "hetpipe":
+        assert not args.preduce
+        my_device = add_cpu_ctx(my_device)
+    device_list = get_partition(my_device, model_partition)
     args.learning_rate /= num_data_parallel
 
     if args.dataset == "cifar100":
@@ -62,7 +71,8 @@ if __name__ == "__main__":
     opt = ht.optim.SGDOptimizer(learning_rate=lr_scheduler, l2reg=args.weight_decay)
     with ht.context(device_list[-1]):
         train_op = opt.minimize(loss)
-        executor = ht.Executor({"train" : [loss, y, y_, train_op], "validate" : [loss, y, y_]}, seed=0, pipeline="pipedream")
+        executor = ht.Executor({"train" : [loss, y, y_, train_op], "validate" : [loss, y, y_]},
+            seed=0, pipeline=args.pipeline, use_preduce=args.preduce)
 
     if executor.config.pipeline_dp_rank == 0:
         writer = get_tensorboard_writer(args.name)
