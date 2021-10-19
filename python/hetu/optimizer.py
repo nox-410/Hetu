@@ -96,12 +96,10 @@ class OptimizerOp(Op):
         self.name = "Optimizer_%s" % (optimizer.name)
         self.optimizer = optimizer
 
-    def compute(self, input_vals, output_val, stream_handle=None, new_tensors_map=None):
+    def compute(self, input_vals, output_val, stream_handle=None):
         assert output_val is None
         # For PS op, this input_vals is None
         # PS mode doesn't need local update
-        if new_tensors_map is not None:
-            self.optimizer.update_tensors_version(new_tensors_map)
         if self.comm_mode != 'PS':
             self.optimizer.update(input_vals, stream_handle)
 

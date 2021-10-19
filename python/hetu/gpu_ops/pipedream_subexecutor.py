@@ -331,10 +331,10 @@ class SubExecutor4Pipedream(object):
                     if self.node_to_shape_map == {}:
                         self.infer_shape(feed_shapes)
                     self.memory_plan(batch_id)
-
             else:
                 in_flight_batches.pop(0)
-
+            # renew optimizer state
+            self.opt.optimizer.update_tensors_version(self.batch_to_tensor_maps[batch_id])
             # compute, same logic for backward and forward
             for node in self.computing_nodes:
                 if node not in cur_topo:
@@ -426,7 +426,7 @@ class SubExecutor4Pipedream(object):
                     else:
                         for weight_node in self.config.placeholder_to_arr_map:
                             self.copy_latest_weight(weight_node)
-                        node.compute(input_vals, node_val, self.comp_stream, self.batch_to_tensor_maps[batch_id])
+                        node.compute(input_vals, node_val, self.comp_stream)
                     node.optimizer.step()
                 else:
                     node.compute(input_vals, node_val, self.comp_stream)
