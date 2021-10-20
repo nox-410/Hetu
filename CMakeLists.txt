@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.18)
 
 project(Hetu CXX)
 
+message(STATUS "    __  __       __        ")
+message(STATUS "   / / / /___   / /_ __  __")
+message(STATUS "  / /_/ // _ \\ / __// / / /")
+message(STATUS " / __  //  __// /_ / /_/ / ")
+message(STATUS "/_/ /_/ \\___/ \\__/ \\__,_/  ")
+message(STATUS "")
+
 include(cmake/config.cmake)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
