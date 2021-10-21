@@ -71,7 +71,6 @@ class SubExecutor4Pipedream(object):
             if node.on_gpu:
                 self.ctx = node.ctx
         assert(self.ctx)
-        print(self.topo_order)
 
         # split the topo into two parts: forward and backward
         for i in range(len(self.topo_order)):
@@ -217,10 +216,11 @@ class SubExecutor4Pipedream(object):
                 # add for OptimizerOp and ParameterServerOp
                 if shape is None:
                     mp[node] = None
+                elif node in self.backward_topo_order and batch_id > 1:
+                    # we can immediately reuse the backward memory
+                    mp[node] = self.batch_to_tensor_maps[batch_id-1][node]
                 elif isinstance(node, (EmbeddingLookUp_Gradient, DataD2HSparseOp)):
                     mp[node] = ndarray.IndexedSlices(dense_shape=shape)
-                elif self.inference and isinstance(node, DropoutOp):
-                    mp[node] = mp[node.inputs[0]]
                 else:
                     mp[node] = ndarray.empty(shape, ctx=node.ctx)
 

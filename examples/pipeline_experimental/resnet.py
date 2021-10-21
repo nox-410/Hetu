@@ -3,6 +3,7 @@ from hetu import init
 from hetu import ndarray
 
 from cifar100 import CIFAR100DataLoader
+from imagenet import ImageNetDataLoader
 
 def conv2d(x, in_channel, out_channel, stride=1, padding=1, kernel_size=3, name=''):
     limit = 1 / (kernel_size * kernel_size * in_channel) ** 0.5
@@ -122,7 +123,10 @@ def resnet(dataset, batch_size, num_layers, device_list):
                     name='resnet_initial_conv')
             x = batch_norm(x, cur_channel, 'resnet_initial_bn')
         else:
-            raise NotImplementedError
+            x = ImageNetDataLoader(batch_size, image=True)
+            x = conv2d(x, 3, cur_channel, kernel_size=7, stride=2, padding=1, name='resnet_initial_conv')
+            x = batch_norm_with_relu(x, cur_channel, 'resnet_initial_bn')
+            x = ht.max_pool2d_op(x, 3, 3, padding=1, stride=2)
 
     for i in range(len(layers)):
         for k in range(layers[i]):
@@ -139,8 +143,10 @@ def resnet(dataset, batch_size, num_layers, device_list):
         x = ht.relu_op(x)
         x = ht.reduce_mean_op(x, [2, 3]) # H, W
         y = fc(x, (cur_channel, num_class), name='resnet_final_fc')
-        y_ = CIFAR100DataLoader(batch_size, image=False)
-        # here we don't use cudnn for softmax crossentropy to avoid overflows
+        if dataset == "cifar100":
+            y_ = CIFAR100DataLoader(batch_size, image=False)
+        else:
+            y_ = ImageNetDataLoader(batch_size, image=False)
         loss = ht.softmaxcrossentropy_op(y, y_, use_cudnn=True)
         loss = ht.reduce_mean_op(loss, [0])
 

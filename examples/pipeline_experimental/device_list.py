@@ -14,7 +14,15 @@ device_local = [
     [gpu(3)],
 ]
 
-my_device = device_remote
+device_8dp = [
+    [gpu(0), gpu(1), gpu(2), gpu(3), gpu(4), gpu(5), gpu(6), gpu(7)],
+] * 4
+
+device_4dp = [
+    [gpu(0), gpu(1), gpu(2), gpu(3)],
+] * 4
+
+my_device = device_8dp
 
 def add_cpu_ctx(device_list):
     result = []
