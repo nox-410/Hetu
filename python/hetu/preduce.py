@@ -16,18 +16,26 @@ class PartialReduce:
         self.nrank = self.comm.nrank
         self._buffer = np.ascontiguousarray(np.repeat(-1, self.nrank + 1).astype(np.int32))
         self._buffer_ptr = self._buffer.ctypes.data_as(ctypes.c_void_p)
+        self._wait_time = 1
 
-    def get_partner(self, max_worker=-1, wait_time=1.0):
+    def get_partner(self, min_worker=2, max_worker=-1):
         # wait_time : the max time to wait, in millisecond
         # max_worker : if max_worker reachs, get_partner will return immediately
         #               in pipeline case, max_worker should be set properly, otherwise -1 is ok
         if max_worker < 0:
             max_worker = self.nrank
-        self.ps_comm.preduce_get_partner(self._reduce_key, self.rank, max_worker, ctypes.c_float(wait_time), self._buffer_ptr)
+        self.ps_comm.preduce_get_partner(self._reduce_key, self.rank, max_worker, ctypes.c_float(self._wait_time), self._buffer_ptr)
+        result = None
         for i in range(self.nrank + 1):
             if self._buffer[i] < 0:
-                return tuple(self._buffer[0 : i])
-        assert False
+                result = tuple(self._buffer[0 : i])
+                break
+        assert result is not None
+        if len(result) < min_worker:
+            self._wait_time = min(self._wait_time * 2, 5000)
+        else:
+            self._wait_time *= 0.95
+        return result
 
     def preduce(self, array, partner, stream=None):
         # array : the array to reduce on

@@ -99,7 +99,6 @@ class CIFAR100DataLoader(Op):
             rank, nrank = config.rank, config.nrank
         else:
             rank, nrank = 0, 1
-        self.train_data.init_state(rank, nrank)
         self.test_data.init_state(rank, nrank)
         gen = torch.Generator()
         gen.manual_seed(rank)

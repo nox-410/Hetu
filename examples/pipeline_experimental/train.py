@@ -56,8 +56,11 @@ if __name__ == "__main__":
     if args.pipeline == "hetpipe":
         assert not args.preduce
         my_device = add_cpu_ctx(my_device)
+        # Note : when we use model average, we don't need to modify lr
+        # In allreduce case, we use reduce mean, otherwise we have to modify weight decay param
+        args.learning_rate /= num_data_parallel
     device_list = get_partition(my_device, model_partition)
-    args.learning_rate /= num_data_parallel
+
     loss, y, y_ = resnet(args.dataset, args.batch_size, num_layers, device_list)
 
     if args.dataset == "cifar100":
@@ -111,7 +114,7 @@ if __name__ == "__main__":
                     writer.add_scalar('Train/loss', loss_value[i], n_iter + i)
                     writer.add_scalar('Train/acc', accuracy[i], n_iter + i)
             if executor.config.pipeline_dp_rank == 0:
-                print(iteration, "TRAIN loss {:.4f} acc {:.4f} lr {:.4f}, time {:.4f}".format(
+                print(iteration, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
                     np.mean(loss_value), np.mean(accuracy), opt.learning_rate, time_used))
 
         n_iter += train_batch_num
