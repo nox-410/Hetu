@@ -14,6 +14,7 @@ def _load_nccl_lib():
     lib_path = os.path.join(curr_path, '../../../build/lib/')
     path_to_so_file = os.path.join(lib_path, "lib_mpi_nccl_runtime_api.so")
     lib = CDLL(path_to_so_file, RTLD_LOCAL)
+    lib.getHostHash.restype = c_uint64
     return lib
 
 lib_mpi_nccl = _load_nccl_lib()
@@ -127,9 +128,7 @@ class MPI_Communicator(object):
         if hostname == 'localhost':
             hostname = socket.gethostname()
         # hash
-        result = 5381
-        for c in hostname:
-            result = result * 33 + ord(c)
+        result = lib_mpi_nccl.getHostHash(c_char_p(bytes(hostname, "utf-8")))
         rank = 0
         while rank < self.nrank and (result != self.hostHashs[rank] or device_id != self.hostDevices[rank]):
             rank += 1

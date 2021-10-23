@@ -54,6 +54,7 @@ void initNcclCommRank(ncclComm_t *comm, int nranks, ncclUniqueId *commId,
                       int rank, int localRank);
 void GroupStart();
 void GroupEnd();
+uint64_t getHostHash(const char *string);
 void dlarrayAllReduce(DLArray *input_array, DLArray *output_array, int datatype,
                       int op, ncclComm_t comm, DLStreamHandle stream_handle);
 void dlarrayBroadcast(DLArray *input_array, DLArray *output_array, int datatype,
