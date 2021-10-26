@@ -56,9 +56,8 @@ if __name__ == "__main__":
     if args.pipeline == "hetpipe":
         assert not args.preduce
         my_device = add_cpu_ctx(my_device)
-        # Note : when we use model average, we don't need to modify lr
-        # In allreduce case, we use reduce mean, otherwise we have to modify weight decay param
-        args.learning_rate /= num_data_parallel
+    # Note : when we use model average, we don't need to modify lr
+    # In allreduce case, we use reduce mean, otherwise we have to modify weight decay param
     device_list = get_partition(my_device, model_partition)
 
     loss, y, y_ = resnet(args.dataset, args.batch_size, num_layers, device_list)
@@ -86,8 +85,6 @@ if __name__ == "__main__":
     else:
         writer = None
 
-    n_iter = 0
-
     if executor.rank == 0:
         print("Training {} epoch, each epoch runs {} iteration".format(args.epochs, train_batch_num))
 
@@ -110,14 +107,15 @@ if __name__ == "__main__":
             loss_value = reduce_result(loss_value)
             accuracy = reduce_result(accuracy)
             if writer:
-                for i in range(train_batch_num):
-                    writer.add_scalar('Train/loss', loss_value[i], n_iter + i)
-                    writer.add_scalar('Train/acc', accuracy[i], n_iter + i)
+                writer.add_scalar('Train/loss', loss_value.mean(), iteration)
+                writer.add_scalar('Train/acc', accuracy.mean(), iteration)
+            if args.preduce:
+                preduce_mean = executor.subexecutor["train"].preduce.mean
+                print(preduce_mean)
+                executor.subexecutor["train"].preduce.reset_mean()
             if executor.config.pipeline_dp_rank == 0:
                 print(iteration, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
                     np.mean(loss_value), np.mean(accuracy), opt.learning_rate, time_used))
-
-        n_iter += train_batch_num
 
         val_loss, val_acc = validate(executor, val_batch_num)
         if val_loss:

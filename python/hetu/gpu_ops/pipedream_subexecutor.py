@@ -263,6 +263,10 @@ class SubExecutor4Pipedream(object):
                 current_weight._async_copyfrom(latest_weight, self.comp_stream)
             self.opt.optimizer.apply_gradient(ps_node.parameter, grad_tensor, self.comp_stream)
             self.skip_h2d.add(h2d_node)
+        else:
+            # modify gradient to mean before push to ps
+            matrix_elementwise_multiply_by_const(dst_tensor,
+                self.config.pipeline_nrank / self.config.nrank, dst_tensor, self.comp_stream)
 
     def run(self, eval_node_list, feed_dict_list, convert_to_numpy_ret_vals, batch_num):
         rank = self.config.pipeline_rank
@@ -277,6 +281,9 @@ class SubExecutor4Pipedream(object):
 
         while True:
             batch_id, cur_schedule = next(scheduler)
+            if cur_schedule == 1 and self.config.use_preduce:
+                self.preduce_partner = self.preduce.get_partner(
+                    max_worker=self.config.nrank//self.config.pipeline_nrank)
 
             cur_topo = self.backward_topo_order if cur_schedule == 1 else self.forward_topo_order
 
@@ -393,9 +400,8 @@ class SubExecutor4Pipedream(object):
 
                 elif isinstance(node, AllReduceCommunicateOp):
                     if self.config.use_preduce:
-                        if not self.preduce_partner:
-                            self.preduce_partner = self.preduce.get_partner(
-                                max_worker=self.config.nrank//self.config.pipeline_nrank)
+                        if isinstance(self.preduce_partner, int):
+                            self.preduce_partner = self.preduce.async_wait(self.preduce_partner)
                         weight_node = self.all_reduce_param_map[node]
                         self.opt.optimizer.process_gradient(weight_node, input_vals[0], self.comp_stream)
                         self.copy_latest_weight(weight_node)

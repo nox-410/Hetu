@@ -32,6 +32,7 @@ def bottleneck(x, input_channel, channel, stride=1, name=''):
     # there are 3 block in reset that should set stride to 2
     # when channel expands, use 11 conv to expand identity
     output_channel = 4 * channel
+    x = ht.relu_op(x)
     shortcut = x
     x = conv2d(x, input_channel, channel, stride=stride, kernel_size=1, padding=0, name=name+'_conv11a')
     x = batch_norm_with_relu(x, channel, name+'_bn1')
@@ -48,7 +49,7 @@ def bottleneck(x, input_channel, channel, stride=1, name=''):
         shortcut = batch_norm(shortcut, output_channel, name+'_bn3')
 
     x = x + shortcut
-    x = ht.relu_op(x)
+    # x = ht.relu_op(x)
 
     return x, output_channel
 

@@ -131,8 +131,12 @@ void ssp_sync(Key key, ssp_version_t version) {
     PSAgent::Get()->SSPSync(key, version);
 }
 
-void preduce_get_partner(Key key, int rank, size_t required_worker_num, float wait_time, int* result) {
-    PSAgent::Get()->PReduceGetPartner(key, rank, required_worker_num, wait_time, result);
+int preduce_get_partner(Key key, int rank, size_t required_worker_num, float wait_time, int* result) {
+    return PSAgent::Get()->PReduceGetPartner(key, rank, required_worker_num, wait_time, result);
+}
+
+void wait_timestamp(int timestamp) {
+    PSAgent::Get()->waitTimestamp(timestamp);
 }
 
 void StartServer() {
