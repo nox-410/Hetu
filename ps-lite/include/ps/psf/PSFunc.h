@@ -54,6 +54,7 @@ enum PsfType {
     kSSPSync,
     /* Partial Reduce support */
     kPReduceGetPartner,
+    kPReduceInit,
     kNumPSfunction,
 };
 

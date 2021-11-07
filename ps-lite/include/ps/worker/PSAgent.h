@@ -498,10 +498,16 @@ public:
         _kvworker.Wait(_kvworker.Request<kSSPInit>(request, cb));
     }
 
-    int PReduceGetPartner(Key key, int rank, size_t required_worker_num, float wait_time, int* result) {
-        PSFData<kPReduceGetPartner>::Request request(key, rank, required_worker_num, wait_time);
+    int PReduceGetPartner(Key key, int rank, float wait_time, int* result) {
+        PSFData<kPReduceGetPartner>::Request request(key, rank, wait_time);
         auto cb = getCallBack<kPReduceGetPartner>(result);
         return _kvworker.Request<kPReduceGetPartner>(request, cb);
+    }
+
+    void PReduceInit(Key key, int rank, int max_worker, int ssp_bound, int sync_every) {
+        PSFData<kPReduceInit>::Request request(key, rank, max_worker, ssp_bound, sync_every);
+        auto cb = getCallBack<kPReduceInit>();
+        _kvworker.Wait(_kvworker.Request<kPReduceInit>(request, cb));
     }
 
     /*
