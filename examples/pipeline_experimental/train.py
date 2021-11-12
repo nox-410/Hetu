@@ -92,6 +92,11 @@ if __name__ == "__main__":
         start = time.time()
         if args.pipeline:
             res = executor.run("train", batch_num = train_batch_num)
+        elif args.preduce:
+            res = []
+            while not executor.subexecutor["train"].preduce_stop_flag:
+                res.append(executor.run("train", convert_to_numpy_ret_vals=True))
+            executor.subexecutor["train"].preduce_stop_flag = False
         else:
             res = []
             for i in range(train_batch_num):
@@ -104,18 +109,17 @@ if __name__ == "__main__":
                 loss_value.append(iter_result[0][0])
                 correct_prediction = np.equal(np.argmax(iter_result[1], 1), np.argmax(iter_result[2], 1)).mean()
                 accuracy.append(correct_prediction)
-            loss_value = reduce_result(loss_value)
-            accuracy = reduce_result(accuracy)
+            loss_value, accuracy = reduce_result([np.mean(loss_value), np.mean(accuracy)])
             if writer:
-                writer.add_scalar('Train/loss', loss_value.mean(), iteration)
-                writer.add_scalar('Train/acc', accuracy.mean(), iteration)
+                writer.add_scalar('Train/loss', loss_value, iteration)
+                writer.add_scalar('Train/acc', accuracy, iteration)
             if args.preduce:
                 preduce_mean = executor.subexecutor["train"].preduce.mean
                 print(preduce_mean)
                 executor.subexecutor["train"].preduce.reset_mean()
             if executor.config.pipeline_dp_rank == 0:
                 print(iteration, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
-                    np.mean(loss_value), np.mean(accuracy), opt.learning_rate, time_used))
+                    loss_value, accuracy, opt.learning_rate, time_used))
 
         val_loss, val_acc = validate(executor, val_batch_num)
         if val_loss:

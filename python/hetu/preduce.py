@@ -44,11 +44,12 @@ class PartialReduce:
                 break
         assert result is not None
         if len(result) < self._min_worker:
-            self._wait_time = min(self._wait_time * 2, 100)
+            self._wait_time = min(self._wait_time * 2, 10)
         else:
             self._wait_time *= 0.9
         self._mean_partner = (self._mean_partner * self._step + len(result)) / (self._step + 1)
         self._step += 1
+        # print(self._wait_time, result)
         return result
 
     def preduce(self, array, partner, stream=None):
@@ -56,12 +57,12 @@ class PartialReduce:
         # partner : the partial reduce group returned by get_partner
         # stream : the stream to run allreduce on
         if partner not in self._comm_map.keys():
-            self._create_partial_comm(partner)
+            self._create_partial_comm(partner, stream)
         comm = self._comm_map[partner]
         comm.dlarrayNcclAllReduce(array, array, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream)
 
-    def _create_partial_comm(self, partner):
-        self._comm_map[partner] = new_group_comm(partner)
+    def _create_partial_comm(self, partner, stream):
+        self._comm_map[partner] = new_group_comm(partner, stream)
 
     @property
     def mean(self):

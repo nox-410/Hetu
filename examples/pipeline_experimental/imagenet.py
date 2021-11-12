@@ -60,7 +60,7 @@ class ImageNetDataLoader(Op):
 
     def get_batch_num(self, name):
         if name=="train":
-            return len(self.dl_train)
+            return len(self.dl_train) // self._data_split
         else:
             return len(self.dl_test)
 
@@ -89,6 +89,7 @@ class ImageNetDataLoader(Op):
             rank, nrank = config.rank, config.nrank
         else:
             rank, nrank = 0, 1
+        self._data_split = nrank
         gen = torch.Generator()
         gen.manual_seed(rank)
         self.dl_train = DataLoader(

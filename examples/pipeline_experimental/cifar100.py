@@ -70,7 +70,7 @@ class CIFAR100DataLoader(Op):
 
     def get_batch_num(self, name):
         if name=="train":
-            return len(self.dl_train)
+            return len(self.dl_train) // self._data_split
         else:
             return len(self.dl_test)
 
@@ -99,6 +99,7 @@ class CIFAR100DataLoader(Op):
             rank, nrank = config.rank, config.nrank
         else:
             rank, nrank = 0, 1
+        self._data_split = nrank
         self.test_data.init_state(rank, nrank)
         gen = torch.Generator()
         gen.manual_seed(rank)

@@ -15,4 +15,5 @@ def reduce_result(array):
     if not isinstance(array, ndarray.NDArray):
         array = ndarray.array(array, ctx=ndarray.gpu(_comm.device_id))
     _comm.dlarrayNcclAllReduce(array, array, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg)
+    _comm.stream.sync()
     return array.asnumpy()

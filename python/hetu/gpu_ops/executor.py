@@ -14,7 +14,7 @@ from .Sum import sum_op
 from .DataTransfer import DataH2DOp, DataD2HOp, DataD2HSparseOp
 from ..communicator.mpi_nccl_comm import ncclDataType_t, GroupStart, GroupEnd
 from .EmbeddingLookUp import EmbeddingLookUp, EmbeddingLookUp_Gradient
-from ..optimizer import OptimizerOp
+from ..optimizer import Optimizer, OptimizerOp
 from . import OnesLike
 from ..stream import create_stream_handle, Event
 from ..context import get_current_context, get_launch_config_by_traverse_nodes, assign_context_by_traverse_nodes, DeviceGroup
@@ -49,13 +49,13 @@ def wrapped_mpi_nccl_init(init_nccl=True, devices=None):
     return nccl_comm
 
 
-def new_group_comm(devices_context=None):
+def new_group_comm(devices_context=None, stream=None):
     assert 'mpi_comm' in globals()
     global mpi_comm
     if devices_context is None:
-        comm = mpi_comm.ncclInit()
+        comm = mpi_comm.ncclInit(stream)
     else:
-        comm = mpi_comm.ncclGroupInit(devices_context)
+        comm = mpi_comm.ncclGroupInit(devices_context, stream)
     return comm
 
 
@@ -571,6 +571,32 @@ class SubExecutor(object):
             self.batch_num) == 0 else self.batch_num.pop()
         self.init_need_allocation = (self.need_feed_nodes == []) and (
             self.dataloader_nodes == [])
+        self._init_preduce()
+
+    def _init_preduce(self):
+        if self.config.use_preduce and not self.inference:
+            from ..preduce import PartialReduce
+            assert self.batch_num is not None
+            self.preduce = PartialReduce(
+                reduce_key=self.config.pipeline_rank,
+                max_worker=self.config.nrank//self.config.pipeline_nrank,
+                ssp_bound=10, sync_every=self.batch_num)
+            self.preduce_partner = None
+            self.preduce_stop_flag = False
+            self.all_reduce_param_map = dict(zip(self.opt.inputs, self.opt.optimizer.params))
+
+    def _run_preduce(self, all_reduce_node, input_vals):
+        if self.preduce_partner is None:
+            self.preduce_partner = self.preduce.get_partner(sync=True)
+            self.preduce_stop_flag = self.preduce.control_flag
+            # self.preduce_partner = self.preduce.async_wait(self.preduce_partner)
+        weight_node = self.all_reduce_param_map[all_reduce_node]
+        self.opt.optimizer.process_gradient(weight_node, input_vals[0], self.comp_stream)
+        self.opt.optimizer.apply_gradient(weight_node, input_vals[0], self.comp_stream)
+        self.comp_stream.sync()
+        self.preduce.preduce(self.config.placeholder_to_arr_map[weight_node],
+            self.preduce_partner, stream=self.nccl_stream)
+        all_reduce_node.event.record(self.nccl_stream)
 
     def profile(self, feed_shapes, log_file, profiler='cpu'):
         # !!! we should profile before using distributed settings
@@ -985,7 +1011,10 @@ class SubExecutor(object):
                     node.compute(input_vals, node_val, self.d2h_stream)
 
                 elif isinstance(node, AllReduceCommunicateOp):
-                    node.compute(input_vals, node_val, self.nccl_stream)
+                    if self.config.use_preduce:
+                        self._run_preduce(node, input_vals)
+                    else:
+                        node.compute(input_vals, node_val, self.nccl_stream)
 
                 elif isinstance(node, DataH2DOp):
                     if self.opt:
@@ -1002,13 +1031,17 @@ class SubExecutor(object):
                     if isinstance(node.event, Event):
                         # for d2h op / eval nodes / nodes before [allreduce or ps nodes or pipelinesend nodes]
                         node.event.record(self.comp_stream)
+                elif isinstance(node, OptimizerOp):
+                    if self.config.use_preduce:
+                        self.preduce_partner = None # renew partner for the next iteration
+                    else:
+                        node.compute(input_vals, node_val, self.comp_stream)
+                    node.optimizer.step() # update learnng rate
                 else:
                     node.compute(input_vals, node_val, self.comp_stream)
                     if isinstance(node.event, Event):
                         # for d2h op / eval nodes / nodes before [allreduce or ps nodes or pipelinesend nodes]
                         node.event.record(self.comp_stream)
-                if isinstance(node, OptimizerOp):
-                    node.optimizer.step() # step optimizer learning rate
 
             if self.dynamic_memory:
                 # free nodes whose reference count is 0 when dynamic_memory == True
