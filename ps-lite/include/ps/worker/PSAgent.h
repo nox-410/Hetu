@@ -484,7 +484,8 @@ public:
     }
 
     void SSPSync(Key key, ssp_version_t version) {
-        PSFData<kSSPSync>::Request request(key, Postoffice::Get()->my_rank(), version);
+        PSFData<kSSPSync>::Request request(key, Postoffice::Get()->my_rank(),
+                                           version);
         bool success = false;
         auto cb = getCallBack<kSSPSync>(std::ref(success));
         while (!success) {
@@ -493,19 +494,24 @@ public:
     }
 
     void SSPInit(Key key, size_t group_size, ssp_version_t tolerance) {
-        PSFData<kSSPInit>::Request request(key, Postoffice::Get()->my_rank(), group_size, tolerance);
+        PSFData<kSSPInit>::Request request(key, Postoffice::Get()->my_rank(),
+                                           group_size, tolerance);
         auto cb = getCallBack<kSSPInit>();
         _kvworker.Wait(_kvworker.Request<kSSPInit>(request, cb));
     }
 
-    int PReduceGetPartner(Key key, int rank, float wait_time, int* result) {
-        PSFData<kPReduceGetPartner>::Request request(key, rank, wait_time);
+    int PReduceGetPartner(Key key, int rank, int vertical_key, size_t batch_id,
+                          float wait_time, int *result) {
+        PSFData<kPReduceGetPartner>::Request request(key, rank, vertical_key,
+                                                     batch_id, wait_time);
         auto cb = getCallBack<kPReduceGetPartner>(result);
         return _kvworker.Request<kPReduceGetPartner>(request, cb);
     }
 
-    void PReduceInit(Key key, int rank, int max_worker, int ssp_bound, int sync_every) {
-        PSFData<kPReduceInit>::Request request(key, rank, max_worker, ssp_bound, sync_every);
+    void PReduceInit(Key key, int rank, int max_worker, int ssp_bound,
+                     int sync_every) {
+        PSFData<kPReduceInit>::Request request(key, rank, max_worker, ssp_bound,
+                                               sync_every);
         auto cb = getCallBack<kPReduceInit>();
         _kvworker.Wait(_kvworker.Request<kPReduceInit>(request, cb));
     }

@@ -131,11 +131,14 @@ void ssp_sync(Key key, ssp_version_t version) {
     PSAgent::Get()->SSPSync(key, version);
 }
 
-int preduce_get_partner(Key key, int rank, float wait_time, int* result) {
-    return PSAgent::Get()->PReduceGetPartner(key, rank, wait_time, result);
+int preduce_get_partner(Key key, int rank, int vertical_key, size_t batch_id,
+                        float wait_time, int *result) {
+    return PSAgent::Get()->PReduceGetPartner(key, rank, vertical_key, batch_id,
+                                             wait_time, result);
 }
 
-void preduce_init(Key key, int rank, int max_worker, int ssp_bound, int sync_every) {
+void preduce_init(Key key, int rank, int max_worker, int ssp_bound,
+                  int sync_every) {
     assert(max_worker >= 1);
     assert(ssp_bound >= 1);
     assert(sync_every >= 1);

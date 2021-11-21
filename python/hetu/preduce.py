@@ -5,7 +5,7 @@ import numpy as np
 import ctypes
 
 class PartialReduce:
-    def __init__(self, reduce_key, max_worker, ssp_bound, sync_every):
+    def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
         # reduce_key : in pipeline case, worker on each stage use a unique key
         self._reduce_key = reduce_key
         self.ps_comm = get_worker_communicate()
@@ -19,6 +19,8 @@ class PartialReduce:
         self._step = 1
         self._mean_partner = 0
         self._control_flag = False
+        self._batch_id = 0
+        self._vertical_key = vertical_key if vertical_key >= 0 else self.rank
 
         self.ps_comm.preduce_init(reduce_key, self.rank, max_worker, ssp_bound, sync_every)
 
@@ -26,9 +28,12 @@ class PartialReduce:
         # wait_time : the max time to wait, in millisecond
         # max_worker : if max_worker reachs, get_partner will return immediately
         #               in pipeline case, max_worker should be set properly, otherwise -1 is ok
+        self._batch_id += 1
         self._min_worker = min_worker
         timestamp = self.ps_comm.preduce_get_partner(
-            self._reduce_key, self.rank, ctypes.c_float(self._wait_time), self._buffer_ptr)
+            self._reduce_key, self.rank, ctypes.c_int(self._vertical_key),
+            ctypes.c_uint64(self._batch_id), ctypes.c_float(self._wait_time),
+            self._buffer_ptr)
         if not sync:
             return timestamp
         else:

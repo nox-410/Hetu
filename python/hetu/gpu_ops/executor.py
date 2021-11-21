@@ -578,9 +578,10 @@ class SubExecutor(object):
             from ..preduce import PartialReduce
             assert self.batch_num is not None
             self.preduce = PartialReduce(
-                reduce_key=self.config.pipeline_rank,
+                reduce_key=self.config.pipeline_nrank-1-self.config.pipeline_rank,
                 max_worker=self.config.nrank//self.config.pipeline_nrank,
-                ssp_bound=10, sync_every=self.batch_num)
+                ssp_bound=10, sync_every=self.batch_num,
+                vertical_key=self.config.pipeline_dp_rank)
             self.preduce_partner = None
             self.preduce_stop_flag = False
             self.all_reduce_param_map = dict(zip(self.opt.inputs, self.opt.optimizer.params))

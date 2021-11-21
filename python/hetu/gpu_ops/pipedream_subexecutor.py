@@ -23,13 +23,15 @@ from .AllReduceCommunicate import AllReduceCommunicateOp
 from .EmbeddingLookUp import EmbeddingLookUp, EmbeddingLookUp_Gradient
 from .DataTransfer import DataH2DOp, DataD2HOp, DataD2HSparseOp
 from ..gpu_links import matrix_elementwise_add, matrix_elementwise_multiply_by_const
-from .executor import find_topo_sort
+from .executor import find_topo_sort, get_worker_communicate
 from ..preduce import PartialReduce
 
+import time
+import random
 
-import ctypes
-import os
-from time import time
+def random_wait(chance, wait_time):
+    if random.random() < chance:
+        time.sleep(wait_time / 1000)
 
 def pipedream_scheduler(rank, nrank):
     """
@@ -145,7 +147,6 @@ class SubExecutor4Pipedream(object):
                     self.param_nodes.append(node)
             elif not ((self.use_sparse_pull or self.cstable_policy) and isinstance(node, EmbeddingLookUp) and self.config.prefetch):
                 self.computing_nodes.append(node)
-        self.batch_num = 0
         self.init_need_allocation = False
         for node in self.topo_order:
             if isinstance(node, OptimizerOp):
@@ -158,10 +159,33 @@ class SubExecutor4Pipedream(object):
             for node in self.topo_order:
                 if isinstance(node, DataH2DOp) and isinstance(node.inputs[0], PlaceholderOp) and node.inputs[0].trainable:
                     self.h2d_map[node.inputs[0]] = node
-        elif config.use_preduce:
-            self.preduce = PartialReduce(config.pipeline_rank)
+        self.preduce = None
+
+    def _init_preduce(self, batch_num):
+        if self.config.use_preduce and not self.inference:
+            from ..preduce import PartialReduce
+            self.preduce = PartialReduce(
+                reduce_key=self.config.pipeline_nrank-1-self.config.pipeline_rank,
+                max_worker=self.config.nrank//self.config.pipeline_nrank,
+                ssp_bound=10, sync_every=batch_num,
+                vertical_key=self.config.pipeline_dp_rank)
             self.preduce_partner = None
+            self.preduce_stop_flag = False
             self.all_reduce_param_map = dict(zip(self.opt.inputs, self.opt.optimizer.params))
+
+    def _run_preduce(self, all_reduce_node, input_vals):
+        if self.preduce_partner is None:
+            self.preduce_partner = self.preduce.get_partner(sync=True)
+            self.preduce_stop_flag = self.preduce.control_flag
+            # self.preduce_partner = self.preduce.async_wait(self.preduce_partner)
+        weight_node = self.all_reduce_param_map[all_reduce_node]
+        self.opt.optimizer.process_gradient(weight_node, input_vals[0], self.comp_stream)
+        self.copy_latest_weight(weight_node)
+        self.opt.optimizer.apply_gradient(weight_node, input_vals[0], self.comp_stream)
+        self.comp_stream.sync()
+        self.preduce.preduce(self.config.placeholder_to_arr_map[weight_node],
+            self.preduce_partner, stream=self.nccl_stream)
+        all_reduce_node.event.record(self.nccl_stream)
 
     def infer_shape(self, feed_shapes):
         """Given shapes of feed_dict nodes, infer shape for all nodes in graph.
@@ -269,6 +293,11 @@ class SubExecutor4Pipedream(object):
                 self.config.pipeline_nrank / self.config.nrank, dst_tensor, self.comp_stream)
 
     def run(self, eval_node_list, feed_dict_list, convert_to_numpy_ret_vals, batch_num):
+        if not self.preduce:
+            self._init_preduce(batch_num)
+        if self.config.use_preduce:
+            batch_num = np.inf # disable batch num
+            self.preduce_stop_flag = False
         rank = self.config.pipeline_rank
         nrank = self.config.pipeline_nrank
 
@@ -281,9 +310,9 @@ class SubExecutor4Pipedream(object):
 
         while True:
             batch_id, cur_schedule = next(scheduler)
-            if cur_schedule == 1 and self.config.use_preduce:
-                self.preduce_partner = self.preduce.get_partner(
-                    max_worker=self.config.nrank//self.config.pipeline_nrank)
+            # if cur_schedule == 1 and self.config.use_preduce:
+            #     self.preduce_partner = self.preduce.get_partner(
+            #         max_worker=self.config.nrank//self.config.pipeline_nrank)
 
             cur_topo = self.backward_topo_order if cur_schedule == 1 else self.forward_topo_order
 
@@ -400,16 +429,7 @@ class SubExecutor4Pipedream(object):
 
                 elif isinstance(node, AllReduceCommunicateOp):
                     if self.config.use_preduce:
-                        if isinstance(self.preduce_partner, int):
-                            self.preduce_partner = self.preduce.async_wait(self.preduce_partner)
-                        weight_node = self.all_reduce_param_map[node]
-                        self.opt.optimizer.process_gradient(weight_node, input_vals[0], self.comp_stream)
-                        self.copy_latest_weight(weight_node)
-                        self.opt.optimizer.apply_gradient(weight_node, input_vals[0], self.comp_stream)
-                        self.comp_stream.sync()
-                        self.preduce.preduce(self.config.placeholder_to_arr_map[weight_node],
-                            self.preduce_partner, stream=self.nccl_stream)
-                        node.event.record(self.nccl_stream)
+                        self._run_preduce(node, input_vals)
                     else:
                         node.compute(input_vals, node_val, self.nccl_stream)
 
@@ -431,7 +451,7 @@ class SubExecutor4Pipedream(object):
 
                 elif isinstance(node, OptimizerOp):
                     if self.config.use_preduce:
-                        self.preduce_partner = None # renew partner for the next iteration
+                        pass
                     else:
                         for weight_node in self.config.placeholder_to_arr_map:
                             self.copy_latest_weight(weight_node)
@@ -459,11 +479,17 @@ class SubExecutor4Pipedream(object):
             if cur_schedule == 1:
                 #assert last_vacant_batch == -1, "last_vacant_batch error, check the logic of code"
                 last_vacant_batch = batch_id
+            if self.config.use_preduce:
+                if self.preduce_stop_flag:
+                    if batch_num == np.inf:
+                        batch_num = batch_id + nrank - 1
+                        self.preduce_partner = (self.nccl_comm.rank,)
+                else:
+                    self.preduce_partner = None # renew partner for the next iteration
 
             # end of scheduling loop
         # release for the next run
         self.batch_to_tensor_maps = {}
         if self.config.pipeline == 'hetpipe':
             self.skip_h2d.clear()
-
         return results_list
