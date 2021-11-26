@@ -449,7 +449,7 @@ def parse_graph_with_dispatch(node_list):
 def complete_state_map_with_partial_information(forward_node_list, node_list, node_cur_state_map, opt):
     # given current state of the node,
     # add target state to the forward graph
-    from .dataloader import DataloaderOp
+    from .dataloader import is_dataloader
     from .optimizer import OptimizerOp
     from .gpu_ops.Variable import PlaceholderOp
 
@@ -457,7 +457,7 @@ def complete_state_map_with_partial_information(forward_node_list, node_list, no
         if node in visited:
             return
         visited.add(node)
-        if not isinstance(node, DataloaderOp):
+        if not is_dataloader(node):
             single = not node.raw_ctx.is_mp()
             if node not in node_cur_state_map:
                 node_cur_state_map[node] = NodeStatus(
