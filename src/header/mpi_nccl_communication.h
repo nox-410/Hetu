@@ -40,6 +40,7 @@ extern "C" {
 void MPIInit();
 void MPIFinalize();
 void MPIGetComm(MPI_Comm *comm);
+void MPIBcast(void *buffer, int size, int root, MPI_Comm comm);
 void getMPICommRank(MPI_Comm *comm, int *myRank);
 void getMPICommSize(MPI_Comm *comm, int *nRanks);
 void getLocalRank(MPI_Comm *comm, int nRanks, int myRank, int *localRank,
@@ -57,6 +58,9 @@ void GroupEnd();
 uint64_t getHostHash(const char *string);
 void dlarrayAllReduce(DLArray *input_array, DLArray *output_array, int datatype,
                       int op, ncclComm_t comm, DLStreamHandle stream_handle);
+void dlarrayReduce(DLArray *input_array, DLArray *output_array, int datatype,
+                   int op, int root, ncclComm_t comm,
+                   DLStreamHandle stream_handle);
 void dlarrayBroadcast(DLArray *input_array, DLArray *output_array, int datatype,
                       int root, ncclComm_t comm, DLStreamHandle stream_handle);
 void dlarrayAllGather(DLArray *array, DLArray *output_array, int datatype,
