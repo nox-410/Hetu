@@ -9,8 +9,8 @@ import numpy as np
 
 IMAGENET_TRAIN_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_TRAIN_STD = (0.229, 0.224, 0.225)
-IMAGENET_TRAIN_ROOT="~/imagenet/train"
-IMAGENET_VAL_ROOT="~/imagenet/val"
+IMAGENET_TRAIN_ROOT="~/.cache/hetu/datasets/imagenet/train"
+IMAGENET_VAL_ROOT="~/.cache/hetu/datasets/imagenet/val"
 
 def tensor2ndarray(x):
     return ndarray.array(x.numpy(), ctx=ndarray.cpu())

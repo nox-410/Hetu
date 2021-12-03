@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import torch
 import numpy as np
+import os.path as osp
 
 CIFAR100_TRAIN_MEAN = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343)
 CIFAR100_TRAIN_STD = (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
@@ -16,7 +17,8 @@ def tensor2ndarray(x):
 
 class CIFAR100Dataset():
     def __init__(self, train=True, image=True):
-        train_set_x, train_set_y, valid_set_x, valid_set_y = ht.data.cifar100()
+        directory = osp.expanduser("~/.cache/hetu/datasets/CIFAR_100")
+        train_set_x, train_set_y, valid_set_x, valid_set_y = ht.data.cifar100(directory=directory)
         if train and image:
             x = train_set_x
             self.transform = transforms.Compose([
