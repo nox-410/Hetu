@@ -1,14 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.distributed as dist
+import bagua.torch_api as bagua
+from bagua.torch_api.algorithms import gradient_allreduce
 import numpy as np
 import argparse
 import time
 import os
-
-# only used for launcher
-import horovod.torch as hvd
 
 from resnet_torch import resnet18, resnet34, resnet50, resnet101, resnet152
 from train_torch_utils import Config, train, validate
@@ -16,9 +14,9 @@ from cifar100 import CIFAR100DataLoader
 
 def torch_sync_data(device, value):
     # all-reduce train stats
-    t = torch.tensor(value, dtype=torch.float64).to(device)
-    dist.all_reduce(t, op=dist.ReduceOp.SUM)
-    return t / dist.get_world_size()
+    t = torch.tensor(value, dtype=torch.float32).to(device)
+    bagua.allreduce(t, t)
+    return t / bagua.get_world_size()
 
 if __name__ == "__main__":
     # argument parser
@@ -34,30 +32,19 @@ if __name__ == "__main__":
     parser.add_argument('--name', type=str, default="")
 
     args = parser.parse_args()
-    hvd.init()
-    init_method = 'tcp://'
-    master_ip = os.getenv('MASTER_ADDR', 'localhost')
-    master_port = os.getenv('MASTER_PORT', '6000')
-    init_method += master_ip + ':' + master_port
-    rank = hvd.rank()
-    world_size = hvd.size()
-    dist.init_process_group(backend="nccl",
-                            world_size=world_size,
-                            rank=rank,
-                            init_method=init_method)
-
-    local_rank = rank % torch.cuda.device_count()
-    torch.cuda.set_device(local_rank)
-    device = torch.device('cuda:%d' % local_rank)
-
-    assert args.model in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'], 'Model not supported now.'
+    torch.cuda.set_device(bagua.get_local_rank())
+    bagua.init_process_group()
+    device = torch.device('cuda:%d' % bagua.get_local_rank())
 
     assert args.dataset in ['MNIST', 'CIFAR10', 'CIFAR100', 'ImageNet']
     dataset = args.dataset
 
     net = eval(args.model)(100).to(device)
-    net = nn.parallel.DistributedDataParallel(net, device_ids=[local_rank])
     opt = optim.SGD(net.parameters(), lr=args.learning_rate, momentum=0.9, weight_decay=args.weight_decay)
+    net = net.with_bagua(
+        [opt], gradient_allreduce.GradientAllReduceAlgorithm()
+    )
+    net.device = device
 
     criterion = nn.CrossEntropyLoss()
 
@@ -68,11 +55,11 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    config = Config(dist.get_rank(), dist.get_world_size())
+    config = Config(bagua.get_rank(), bagua.get_world_size())
     data.backward_hook(config)
     label.backward_hook(config)
 
-    if dist.get_rank() == 0:
+    if bagua.get_rank() == 0:
         print("Training {} epoch, each epoch runs {} iteration".format(args.epochs, data.get_batch_num("train")))
     # training
     for epoch in range(args.epochs):
@@ -88,7 +75,7 @@ if __name__ == "__main__":
         loss = loss.mean().item()
         acc =acc.mean().item()
         end = time.time()
-        if dist.get_rank() == 0:
+        if bagua.get_rank() == 0:
             print(epoch, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
                         loss, acc, args.learning_rate, end - start))
 
@@ -101,5 +88,5 @@ if __name__ == "__main__":
         acc = torch_sync_data(device, acc)
         loss = loss.mean().item()
         acc =acc.mean().item()
-        if dist.get_rank() == 0:
+        if bagua.get_rank() == 0:
             print(epoch, "EVAL  loss {:.4f} acc {:.4f}".format(loss, acc))

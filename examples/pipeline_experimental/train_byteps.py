@@ -1,29 +1,21 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.distributed as dist
 import numpy as np
 import argparse
 import time
 import os
+import hetu as ht
 
-# only used for launcher
-import horovod.torch as hvd
+from byteps.torch.parallel import DistributedDataParallel as DDP
+import byteps.torch as bps
 
 from resnet_torch import resnet18, resnet34, resnet50, resnet101, resnet152
 from train_torch_utils import Config, train, validate
 from cifar100 import CIFAR100DataLoader
 
-def torch_sync_data(device, value):
-    # all-reduce train stats
-    t = torch.tensor(value, dtype=torch.float64).to(device)
-    dist.all_reduce(t, op=dist.ReduceOp.SUM)
-    return t / dist.get_world_size()
-
 if __name__ == "__main__":
     # argument parser
-    global local_rank
-    local_rank = 0
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default="resnet18", help='model to be tested')
     parser.add_argument('--dataset', type=str, default="CIFAR100", help='dataset to be trained on')
@@ -34,19 +26,9 @@ if __name__ == "__main__":
     parser.add_argument('--name', type=str, default="")
 
     args = parser.parse_args()
-    hvd.init()
-    init_method = 'tcp://'
-    master_ip = os.getenv('MASTER_ADDR', 'localhost')
-    master_port = os.getenv('MASTER_PORT', '6000')
-    init_method += master_ip + ':' + master_port
-    rank = hvd.rank()
-    world_size = hvd.size()
-    dist.init_process_group(backend="nccl",
-                            world_size=world_size,
-                            rank=rank,
-                            init_method=init_method)
+    bps.init()
 
-    local_rank = rank % torch.cuda.device_count()
+    local_rank = bps.local_rank()
     torch.cuda.set_device(local_rank)
     device = torch.device('cuda:%d' % local_rank)
 
@@ -56,7 +38,8 @@ if __name__ == "__main__":
     dataset = args.dataset
 
     net = eval(args.model)(100).to(device)
-    net = nn.parallel.DistributedDataParallel(net, device_ids=[local_rank])
+    net = DDP(net, device_ids=[local_rank])
+    net.device = device
     opt = optim.SGD(net.parameters(), lr=args.learning_rate, momentum=0.9, weight_decay=args.weight_decay)
 
     criterion = nn.CrossEntropyLoss()
@@ -68,11 +51,11 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    config = Config(dist.get_rank(), dist.get_world_size())
+    config = Config(bps.rank(), int(os.environ["DMLC_NUM_WORKER"]))
     data.backward_hook(config)
     label.backward_hook(config)
 
-    if dist.get_rank() == 0:
+    if bps.rank() == 0:
         print("Training {} epoch, each epoch runs {} iteration".format(args.epochs, data.get_batch_num("train")))
     # training
     for epoch in range(args.epochs):
@@ -83,23 +66,17 @@ if __name__ == "__main__":
             loss_, acc_ = train(net, criterion, opt, data, label)
             loss.append(loss_)
             acc.append(acc_)
-        loss = torch_sync_data(device, loss)
-        acc = torch_sync_data(device, acc)
-        loss = loss.mean().item()
-        acc =acc.mean().item()
+        loss = torch.tensor(loss).mean().item()
+        acc = torch.tensor(acc).mean().item()
         end = time.time()
-        if dist.get_rank() == 0:
-            print(epoch, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
-                        loss, acc, args.learning_rate, end - start))
+        print(epoch, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
+                loss, acc, args.learning_rate, end - start))
 
         loss, acc = [], []
         for i in range(data.get_batch_num("test")):
             loss_, acc_ = validate(net, criterion, data, label)
             loss.append(loss_)
             acc.append(acc_)
-        loss = torch_sync_data(device, loss)
-        acc = torch_sync_data(device, acc)
-        loss = loss.mean().item()
-        acc =acc.mean().item()
-        if dist.get_rank() == 0:
-            print(epoch, "EVAL  loss {:.4f} acc {:.4f}".format(loss, acc))
+        loss = torch.tensor(loss).mean().item()
+        acc = torch.tensor(acc).mean().item()
+        print(epoch, "EVAL  loss {:.4f} acc {:.4f}".format(loss, acc))

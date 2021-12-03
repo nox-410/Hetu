@@ -1,14 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.distributed as dist
+import horovod.torch as hvd
 import numpy as np
 import argparse
 import time
 import os
-
-# only used for launcher
-import horovod.torch as hvd
 
 from resnet_torch import resnet18, resnet34, resnet50, resnet101, resnet152
 from train_torch_utils import Config, train, validate
@@ -16,14 +13,12 @@ from cifar100 import CIFAR100DataLoader
 
 def torch_sync_data(device, value):
     # all-reduce train stats
-    t = torch.tensor(value, dtype=torch.float64).to(device)
-    dist.all_reduce(t, op=dist.ReduceOp.SUM)
-    return t / dist.get_world_size()
+    t = torch.tensor(value, dtype=torch.float32).to(device)
+    hvd.allreduce(t)
+    return t
 
 if __name__ == "__main__":
     # argument parser
-    global local_rank
-    local_rank = 0
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default="resnet18", help='model to be tested')
     parser.add_argument('--dataset', type=str, default="CIFAR100", help='dataset to be trained on')
@@ -35,29 +30,18 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     hvd.init()
-    init_method = 'tcp://'
-    master_ip = os.getenv('MASTER_ADDR', 'localhost')
-    master_port = os.getenv('MASTER_PORT', '6000')
-    init_method += master_ip + ':' + master_port
-    rank = hvd.rank()
-    world_size = hvd.size()
-    dist.init_process_group(backend="nccl",
-                            world_size=world_size,
-                            rank=rank,
-                            init_method=init_method)
-
-    local_rank = rank % torch.cuda.device_count()
-    torch.cuda.set_device(local_rank)
-    device = torch.device('cuda:%d' % local_rank)
-
-    assert args.model in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'], 'Model not supported now.'
+    torch.cuda.set_device(hvd.local_rank())
+    device = torch.device('cuda:%d' % hvd.local_rank())
 
     assert args.dataset in ['MNIST', 'CIFAR10', 'CIFAR100', 'ImageNet']
     dataset = args.dataset
 
     net = eval(args.model)(100).to(device)
-    net = nn.parallel.DistributedDataParallel(net, device_ids=[local_rank])
     opt = optim.SGD(net.parameters(), lr=args.learning_rate, momentum=0.9, weight_decay=args.weight_decay)
+    opt = hvd.DistributedOptimizer(opt, named_parameters=net.named_parameters())
+    hvd.broadcast_parameters(net.state_dict(), root_rank=0)
+    hvd.broadcast_optimizer_state(opt, root_rank=0)
+    net.device = device
 
     criterion = nn.CrossEntropyLoss()
 
@@ -68,11 +52,11 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    config = Config(dist.get_rank(), dist.get_world_size())
+    config = Config(hvd.rank(), hvd.size())
     data.backward_hook(config)
     label.backward_hook(config)
 
-    if dist.get_rank() == 0:
+    if hvd.rank() == 0:
         print("Training {} epoch, each epoch runs {} iteration".format(args.epochs, data.get_batch_num("train")))
     # training
     for epoch in range(args.epochs):
@@ -88,7 +72,7 @@ if __name__ == "__main__":
         loss = loss.mean().item()
         acc =acc.mean().item()
         end = time.time()
-        if dist.get_rank() == 0:
+        if hvd.rank() == 0:
             print(epoch, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
                         loss, acc, args.learning_rate, end - start))
 
@@ -101,5 +85,5 @@ if __name__ == "__main__":
         acc = torch_sync_data(device, acc)
         loss = loss.mean().item()
         acc =acc.mean().item()
-        if dist.get_rank() == 0:
+        if hvd.rank() == 0:
             print(epoch, "EVAL  loss {:.4f} acc {:.4f}".format(loss, acc))
