@@ -2,8 +2,8 @@ import hetu as ht
 from hetu import init
 from hetu import ndarray
 
-from cifar100 import CIFAR100DataLoader
-from imagenet import ImageNetDataLoader
+from datasets.cifar100 import CIFAR100DataLoader
+from datasets.imagenet import ImageNetDataLoader
 
 def conv2d(x, in_channel, out_channel, stride=1, padding=1, kernel_size=3, name=''):
     limit = 1 / (kernel_size * kernel_size * in_channel) ** 0.5

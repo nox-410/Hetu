@@ -100,7 +100,7 @@ def main():
 
     proc = multiprocessing.Process(target=start_scheduler, args=[settings.chief, args.identify])
     _procs.append(proc)
-
+    worker_id = 0
     for node in settings.hosts:
         if settings.servers.get(node, 0):
             for _ in range(settings.servers[node]):
@@ -110,8 +110,9 @@ def main():
         if settings.workers.get(node, 0):
             for i in range(settings.workers[node]):
                 proc = multiprocessing.Process(target=start_worker, args=[
-                                            node, args.identify, i, ' '.join(args.command)])
+                                            node, args.identify, worker_id, ' '.join(args.command)])
                 _procs.append(proc)
+                worker_id += 1
     for proc in _procs:
         proc.start()
     for proc in _procs:

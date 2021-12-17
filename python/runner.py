@@ -184,7 +184,7 @@ def main():
                 _procs.append(proc)
         for proc in _procs:
             proc.start()
-        mpi_command = 'mpirun --allow-run-as-root --tag-output -np %d %s' % (
+        mpi_command = 'mpirun --allow-run-as-root --bind-to none --tag-output -np %d %s' % (
             settings.num_workers, ' '.join(args.command))
         env = dict(os.environ)
         if settings.enable_PS:
@@ -220,7 +220,7 @@ def main():
                     _procs.append(proc)
         for proc in _procs:
             proc.start()
-        basic_args = '--allow-run-as-root --tag-output'
+        basic_args = '--allow-run-as-root --bind-to none --tag-output'
         hosts_in_command = ','.join(
             ['%s:%d' % (node, nworkers) for node, nworkers in settings.workers.items()])
         mpi_ssh_args = '' if args.identify == '' else '-bootstrap=ssh -bootstrap-exec-args -i %s' % args.identify

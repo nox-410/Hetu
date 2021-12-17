@@ -12,7 +12,7 @@ import horovod.torch as hvd
 
 from resnet_torch import resnet18, resnet34, resnet50, resnet101, resnet152
 from train_torch_utils import Config, train, validate
-from cifar100 import CIFAR100DataLoader
+from datasets.cifar100 import CIFAR100DataLoader
 
 def torch_sync_data(device, value):
     # all-reduce train stats
