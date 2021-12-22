@@ -84,25 +84,27 @@ def adam_update(param, grad, expavg, expavgsq, lr, beta1, beta2, beta1t, beta2t,
         assert isinstance(grad.indices, _nd.NDArray)
         assert isinstance(grad.values, _nd.NDArray)
         _LIB.AdamOptimizerSparseUpdate(param.handle, grad.indices.handle, grad.values.handle, expavg.handle, expavgsq.handle, ctypes.c_float(lr), ctypes.c_float(beta1), ctypes.c_float(beta2),
-                                       ctypes.c_float(beta1t), ctypes.c_float(beta2t), ctypes.c_float(eps), stream.handle if stream else None)
-        grad.free_deduplicate()
-        grad.free_dense()
+                                       ctypes.c_float(beta1t), ctypes.c_float(beta2t), ctypes.c_float(eps), ctypes.c_bool(only_process_grad), stream.handle if stream else None)
+        if not only_process_grad:
+            grad.free_deduplicate()
+            grad.free_dense()
 
-def adamw_update(param, grad, expavg, expavgsq, lr, beta1, beta2, beta1t, beta2t, eps, weight_decay, stream=None):
+def adamw_update(param, grad, expavg, expavgsq, lr, beta1, beta2, beta1t, beta2t, eps, weight_decay, only_process_grad, stream=None):
     assert isinstance(param, _nd.NDArray)
     assert isinstance(grad, (_nd.NDArray, _nd.IndexedSlices))
     assert isinstance(expavg, _nd.NDArray)
     assert isinstance(expavgsq, _nd.NDArray)
     if isinstance(grad, _nd.NDArray):
         _LIB.AdamWOptimizerUpdate(param.handle, grad.handle, expavg.handle, expavgsq.handle, ctypes.c_float(lr), ctypes.c_float(beta1), ctypes.c_float(beta2),
-                                 ctypes.c_float(beta1t), ctypes.c_float(beta2t), ctypes.c_float(eps), ctypes.c_float(weight_decay), stream.handle if stream else None)
+                                 ctypes.c_float(beta1t), ctypes.c_float(beta2t), ctypes.c_float(eps), ctypes.c_float(weight_decay), ctypes.c_bool(only_process_grad), stream.handle if stream else None)
     else:
         grad.deduplicate(stream)
         assert isinstance(grad.indices, _nd.NDArray)
         assert isinstance(grad.values, _nd.NDArray)
         _LIB.AdamWOptimizerSparseUpdate(param.handle, grad.indices.handle, grad.values.handle, expavg.handle, expavgsq.handle, ctypes.c_float(lr), ctypes.c_float(beta1), ctypes.c_float(beta2),
-                                       ctypes.c_float(beta1t), ctypes.c_float(beta2t), ctypes.c_float(eps), ctypes.c_float(weight_decay), stream.handle if stream else None)
-        grad.free_deduplicate()
+                                       ctypes.c_float(beta1t), ctypes.c_float(beta2t), ctypes.c_float(eps), ctypes.c_float(weight_decay), ctypes.c_bool(only_process_grad), stream.handle if stream else None)
+        if not only_process_grad:
+            grad.free_deduplicate()
 
 def lamb_update(param, grad, expavg, expavgsq, lr, beta1, beta2, beta1t, beta2t, eps, weight_decay, stream=None):
     assert isinstance(param, _nd.NDArray)

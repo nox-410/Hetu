@@ -248,7 +248,7 @@ class HetuConfig(object):
             ps_nrank = int(
                 os.environ['DMLC_NUM_WORKER']) if 'DMLC_NUM_WORKER' in os.environ else 1
             topo_sort_register_ps(
-                eval_node_list, self.ps_comm, self.comm_mode, self.seed, cstable_policy)
+                eval_node_list, self.ps_comm, self.comm_mode, self.seed, cstable_policy, use_sparse_pull)
         if self.comm_mode == "Hybrid" or self.comm_mode == "AllReduce":
             self.nccl_comm = wrapped_mpi_nccl_init(devices=local_gpu_devices)
         elif context_launch:
@@ -435,7 +435,7 @@ class Executor(object):
                     else:
                         state_dic[node.name] = self.config.placeholder_to_arr_map[node].asnumpy()
             self.ps_comm.BarrierWorker()
-        
+
         with open(file_path+file_name, "wb") as writer:
             pickle.dump(state_dic, writer)
 
@@ -549,11 +549,11 @@ class SubExecutor(object):
                 elif not isinstance(node, OptimizerOp):
                     self.eval_node_list.append(node)
             self.global_eval_nodes = eval_node_list
-        elif config.p2p_stream:
-            self.run_results_indices = [eval_node_list.index(
-                node) if node in eval_node_list else -1 for node in config.my_eval_nodes]
-            self.eval_node_list = config.my_eval_nodes
-            self.global_eval_nodes = eval_node_list
+        # elif config.p2p_stream:
+        #     self.run_results_indices = [eval_node_list.index(
+        #         node) if node in eval_node_list else -1 for node in config.my_eval_nodes]
+        #     self.eval_node_list = config.my_eval_nodes
+        #     self.global_eval_nodes = eval_node_list
 
         if self.inference == False:
             self.topo_order = find_topo_sort(self.eval_node_list)
@@ -858,7 +858,7 @@ class SubExecutor(object):
                     dense_shape=shape)
                 return
             if node.on_gpu:
-                ln_bn_grad_nodes = ["Layer_Normalization_Gradient_of_DataOp", "Layer_Normalization_Gradient_of_ScaleOp",  
+                ln_bn_grad_nodes = ["Layer_Normalization_Gradient_of_DataOp", "Layer_Normalization_Gradient_of_ScaleOp",
                                     "Layer_Normalization_Gradient_of_BiasOp", "Batch_Normalization_Gradient_of_DataOp",
                                     "Batch_Normalization_Gradient_of_ScaleOp", "Batch_Normalization_Gradient_of_BiasOp"]
                 if node.inplace or node.op_type in ln_bn_grad_nodes:
@@ -902,7 +902,7 @@ class SubExecutor(object):
                         dense_shape=shape)
                     continue
                 if node.on_gpu:
-                    ln_bn_grad_nodes = ["Layer_Normalization_Gradient_of_DataOp", "Layer_Normalization_Gradient_of_ScaleOp",  
+                    ln_bn_grad_nodes = ["Layer_Normalization_Gradient_of_DataOp", "Layer_Normalization_Gradient_of_ScaleOp",
                                         "Layer_Normalization_Gradient_of_BiasOp", "Batch_Normalization_Gradient_of_DataOp",
                                         "Batch_Normalization_Gradient_of_ScaleOp", "Batch_Normalization_Gradient_of_BiasOp"]
                     if node.inplace or node.op_type in ln_bn_grad_nodes:
@@ -1159,11 +1159,13 @@ class SubExecutor(object):
             results = filter(lambda x: x[0] in self.global_eval_nodes,
                              zip(self.eval_node_list, results))
             results = [x[1] for x in results]
-        elif self.use_p2p:
-            new_results = [None for _ in self.global_eval_nodes]
-            for i, j in enumerate(self.run_results_indices):
-                new_results[j] = results[i]
-            results = new_results
+        # elif self.use_p2p:
+        #     new_results = [None for _ in self.global_eval_nodes]
+        #     for i, j in enumerate(self.run_results_indices):
+        #         new_results[j] = results[i]
+        #     results = new_results
+
+        results = list(filter(lambda x: x is not None, results))
 
         return results
 
@@ -1263,7 +1265,7 @@ def gradients(output_node, node_list, insert_grad=None, return_all=False):
 # this function synchronously initialize meta information and do the initialization on ps,
 # Will modify PS worker state, PS server parmeter initialization
 # Won't modify config, computation graph and executor state
-def topo_sort_register_ps(node_list, ps_comm, comm_mode, seed, cstable_policy):
+def topo_sort_register_ps(node_list, ps_comm, comm_mode, seed, cstable_policy, use_sparse_pull):
     visited = set()
     for node in node_list:
         if isinstance(node, OptimizerOp):
@@ -1274,7 +1276,7 @@ def topo_sort_register_ps(node_list, ps_comm, comm_mode, seed, cstable_policy):
             return
         visited.add(node)
         if isinstance(node, PlaceholderOp) and node.trainable and (comm_mode == "PS" or node.is_embed):
-            node_type = int(node.is_embed)
+            node_type = int(node.is_embed) and use_sparse_pull
             if node_type and cstable_policy is not None:
                 node_type = 2
             node.initializer.init_on_ps(

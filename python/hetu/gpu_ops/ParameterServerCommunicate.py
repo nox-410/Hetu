@@ -188,10 +188,6 @@ class ParameterServerCommunicateOp(Op):
             self._push = self._push_sparse_cpu
             self._pull = self._pull_sparse
             self._push_pull = self._push_pull_sparse_cpu
-        elif self.parameter.is_embed:
-            self._push = self._push_sparse_cpu
-            self._pull = self._pull_dense
-            self._push_pull = self._push_pull_halfsparse_cpu
         elif self.on_cpu:
             self._push = self._push_dense_cpu
             self._pull = self._pull_dense

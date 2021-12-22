@@ -24,7 +24,7 @@ class MulByConstOp(Op):
                 input_vals[0], self.const_attr, output_val, stream_handle)
 
     def gradient(self, output_grad):
-        return [self.const_attr * output_grad]
+        return [mul_byconst_op(output_grad, self.const_attr, ctx=self.raw_ctx)]
 
     def infer_shape(self, input_shapes):
         assert len(input_shapes) == 1

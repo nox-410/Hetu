@@ -69,7 +69,7 @@ class AllReduceCommunicateOp(Op):
         # previously we use array reshape lazy callback to do this, which is deprecated (not efficient)
         self.inputs[0].inplace = False
         self.dtype = ncclDataType_t.ncclFloat32
-        self.reduce_op = ncclRedOp_t.ncclSum
+        self.reduce_op = ncclRedOp_t.ncclAvg
 
 
 def allreduceCommunicate_op(node, comm):

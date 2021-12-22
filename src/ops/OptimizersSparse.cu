@@ -1,9 +1,9 @@
 #include "gpu_runtime.h"
 
-__global__ void add_l2_regularization_sparse(const float *param, 
-                                            float *grad_data,
-                                            const float *indices_data,
-                                            float l2reg, size_t size, size_t length) {
+__global__ void add_l2_regularization_sparse(const float* param,
+    float* grad_data,
+    const float* indices_data,
+    float l2reg, size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -12,14 +12,14 @@ __global__ void add_l2_regularization_sparse(const float *param,
     int grad_ind = indices_data[ind];
     const float cur_grad = grad_data[thread_ind];
     size_t total_offset = length * grad_ind + offset;
-    const float *param_ptr = param + total_offset;
+    const float* param_ptr = param + total_offset;
     grad_data[thread_ind] = cur_grad + l2reg * (*param_ptr);
 }
 
-int AddL2RegularizationSparse(const DLArrayHandle param, 
-                                const DLArrayHandle grad_indices,
-                                DLArrayHandle grad_values, float l2reg, 
-                                DLStreamHandle stream_handle = NULL) {
+int AddL2RegularizationSparse(const DLArrayHandle param,
+    const DLArrayHandle grad_indices,
+    DLArrayHandle grad_values, float l2reg,
+    DLStreamHandle stream_handle = NULL) {
     size_t size = 1;
     size_t length = param->shape[1];
     for (int i = 0; i < grad_values->ndim; i++) {
@@ -28,9 +28,9 @@ int AddL2RegularizationSparse(const DLArrayHandle param,
 
     dim3 blocks;
     dim3 threads;
-    float *grad_data = (float *)grad_values->data;
-    const float *param_data = (const float *)param->data;
-    const float *indices_data = (const float *)grad_indices->data;
+    float* grad_data = (float*)grad_values->data;
+    const float* param_data = (const float*)param->data;
+    const float* indices_data = (const float*)grad_indices->data;
 
     if (size <= 1024) {
         threads.x = size;
@@ -41,18 +41,18 @@ int AddL2RegularizationSparse(const DLArrayHandle param,
     }
 
     if (stream_handle)
-        add_l2_regularization_sparse<<<blocks, threads, 0,
-                            *(cudaStream_t *)stream_handle->handle>>>(
-                param_data, grad_data, indices_data, l2reg, size, length);
+        add_l2_regularization_sparse << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
+            param_data, grad_data, indices_data, l2reg, size, length);
     else
-        add_l2_regularization_sparse<<<blocks, threads>>>(param_data, 
-                grad_data, indices_data, l2reg, size, length);
+        add_l2_regularization_sparse << <blocks, threads >> > (param_data,
+            grad_data, indices_data, l2reg, size, length);
     return 0;
 }
 
-__global__ void sgd_sparse_update(const float *grad_data,
-                                  const float *indices_data, float *param_data,
-                                  size_t size, size_t length, float lr) {
+__global__ void sgd_sparse_update(const float* grad_data,
+    const float* indices_data, float* param_data,
+    size_t size, size_t length, float lr) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -60,14 +60,14 @@ __global__ void sgd_sparse_update(const float *grad_data,
     size_t offset = thread_ind % length;
     int id = indices_data[index];
     const float cur_grad = grad_data[thread_ind];
-    float *param_ptr = param_data + length * id + offset;
+    float* param_ptr = param_data + length * id + offset;
     atomicAdd(param_ptr, -lr * cur_grad);
 }
 
 int SGDOptimizerSparseUpdate(DLArrayHandle param,
-                             const DLArrayHandle grad_indices,
-                             const DLArrayHandle grad_values, float lr,
-                             DLStreamHandle stream_handle = NULL) {
+    const DLArrayHandle grad_indices,
+    const DLArrayHandle grad_values, float lr,
+    DLStreamHandle stream_handle = NULL) {
     size_t size = 1;
     size_t length = param->shape[1];
     for (int i = 0; i < grad_values->ndim; i++) {
@@ -76,9 +76,9 @@ int SGDOptimizerSparseUpdate(DLArrayHandle param,
 
     dim3 blocks;
     dim3 threads;
-    const float *grad_data = (const float *)grad_values->data;
-    float *param_data = (float *)param->data;
-    const float *indices_data = (const float *)grad_indices->data;
+    const float* grad_data = (const float*)grad_values->data;
+    float* param_data = (float*)param->data;
+    const float* indices_data = (const float*)grad_indices->data;
 
     if (size <= 1024) {
         threads.x = size;
@@ -89,20 +89,20 @@ int SGDOptimizerSparseUpdate(DLArrayHandle param,
     }
 
     if (stream_handle)
-        sgd_sparse_update<<<blocks, threads, 0,
-                            *(cudaStream_t *)stream_handle->handle>>>(
+        sgd_sparse_update << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
             grad_data, indices_data, param_data, size, length, lr);
     else
-        sgd_sparse_update<<<blocks, threads>>>(grad_data, indices_data,
-                                               param_data, size, length, lr);
+        sgd_sparse_update << <blocks, threads >> > (grad_data, indices_data,
+            param_data, size, length, lr);
     return 0;
 }
 
-__global__ void nesterov_sparse_first_phase(float *param_data,
-                                            float *veloc_data,
-                                            const float *grad_data,
-                                            const float *indices_data, float lr,
-                                            size_t size, size_t length) {
+__global__ void nesterov_sparse_first_phase(float* param_data,
+    float* veloc_data,
+    const float* grad_data,
+    const float* indices_data, float lr,
+    size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -111,16 +111,16 @@ __global__ void nesterov_sparse_first_phase(float *param_data,
     int grad_ind = indices_data[ind];
     const float cur_grad = grad_data[thread_ind];
     size_t total_offset = length * grad_ind + offset;
-    float *veloc_ptr = veloc_data + total_offset;
-    float *param_ptr = param_data + total_offset;
+    float* veloc_ptr = veloc_data + total_offset;
+    float* param_ptr = param_data + total_offset;
     float temp = -lr * cur_grad;
     atomicAdd(veloc_ptr, temp);
     atomicAdd(param_ptr, temp);
 }
 
-__global__ void nesterov_sparse_second_phase(float *param_data,
-                                             float *veloc_data, float momentum,
-                                             size_t size) {
+__global__ void nesterov_sparse_second_phase(float* param_data,
+    float* veloc_data, float momentum,
+    size_t size) {
     size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (ind >= size)
         return;
@@ -129,10 +129,10 @@ __global__ void nesterov_sparse_second_phase(float *param_data,
     param_data[ind] = param_data[ind] + temp_veloc;
 }
 
-__global__ void momentum_sparse_first_phase(float *veloc_data,
-                                            const float *grad_data,
-                                            const float *indices_data, float lr,
-                                            size_t size, size_t length) {
+__global__ void momentum_sparse_first_phase(float* veloc_data,
+    const float* grad_data,
+    const float* indices_data, float lr,
+    size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -140,13 +140,13 @@ __global__ void momentum_sparse_first_phase(float *veloc_data,
     size_t offset = thread_ind % length;
     int grad_ind = indices_data[ind];
     const float cur_grad = grad_data[thread_ind];
-    float *veloc_ptr = veloc_data + length * grad_ind + offset;
+    float* veloc_ptr = veloc_data + length * grad_ind + offset;
     atomicAdd(veloc_ptr, -lr * cur_grad);
 }
 
-__global__ void momentum_sparse_second_phase(float *param_data,
-                                             float *veloc_data, float momentum,
-                                             size_t size) {
+__global__ void momentum_sparse_second_phase(float* param_data,
+    float* veloc_data, float momentum,
+    size_t size) {
     size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (ind >= size)
         return;
@@ -155,11 +155,11 @@ __global__ void momentum_sparse_second_phase(float *param_data,
 }
 
 int MomentumOptimizerSparseUpdate(DLArrayHandle param,
-                                  const DLArrayHandle grad_indices,
-                                  const DLArrayHandle grad_values,
-                                  DLArrayHandle velocity, float lr,
-                                  float momentum, bool nesterov,
-                                  DLStreamHandle stream_handle = NULL) {
+    const DLArrayHandle grad_indices,
+    const DLArrayHandle grad_values,
+    DLArrayHandle velocity, float lr,
+    float momentum, bool nesterov,
+    DLStreamHandle stream_handle = NULL) {
     size_t size = 1;
     size_t total_size = 1;
     size_t length = param->shape[1];
@@ -170,10 +170,10 @@ int MomentumOptimizerSparseUpdate(DLArrayHandle param,
         total_size *= param->shape[i];
     }
 
-    float *param_data = (float *)param->data;
-    const float *grad_data = (const float *)grad_values->data;
-    const float *indices_data = (const float *)grad_indices->data;
-    float *velocity_data = (float *)velocity->data;
+    float* param_data = (float*)param->data;
+    const float* grad_data = (const float*)grad_values->data;
+    const float* indices_data = (const float*)grad_indices->data;
+    float* velocity_data = (float*)velocity->data;
     dim3 blocks;
     dim3 threads;
     if (size <= 1024) {
@@ -196,44 +196,44 @@ int MomentumOptimizerSparseUpdate(DLArrayHandle param,
 
     if (nesterov) {
         if (stream_handle) {
-            nesterov_sparse_first_phase<<<
-                blocks, threads, 0, *(cudaStream_t *)stream_handle->handle>>>(
-                param_data, velocity_data, grad_data, indices_data, lr, size,
-                length);
-            nesterov_sparse_second_phase<<<dense_blocks, dense_threads, 0,
-                                           *(cudaStream_t *)
-                                                stream_handle->handle>>>(
-                param_data, velocity_data, momentum, total_size);
+            nesterov_sparse_first_phase << <
+                blocks, threads, 0, *(cudaStream_t*)stream_handle->handle >> > (
+                    param_data, velocity_data, grad_data, indices_data, lr, size,
+                    length);
+            nesterov_sparse_second_phase << <dense_blocks, dense_threads, 0,
+                *(cudaStream_t*)
+                stream_handle->handle >> > (
+                    param_data, velocity_data, momentum, total_size);
         } else {
-            nesterov_sparse_first_phase<<<blocks, threads>>>(
+            nesterov_sparse_first_phase << <blocks, threads >> > (
                 param_data, velocity_data, grad_data, indices_data, lr, size,
                 length);
-            nesterov_sparse_second_phase<<<dense_blocks, dense_threads>>>(
+            nesterov_sparse_second_phase << <dense_blocks, dense_threads >> > (
                 param_data, velocity_data, momentum, total_size);
         }
     } else {
         if (stream_handle) {
-            momentum_sparse_first_phase<<<
-                blocks, threads, 0, *(cudaStream_t *)stream_handle->handle>>>(
-                velocity_data, grad_data, indices_data, lr, size, length);
-            momentum_sparse_second_phase<<<dense_blocks, dense_threads, 0,
-                                           *(cudaStream_t *)
-                                                stream_handle->handle>>>(
-                param_data, velocity_data, momentum, total_size);
+            momentum_sparse_first_phase << <
+                blocks, threads, 0, *(cudaStream_t*)stream_handle->handle >> > (
+                    velocity_data, grad_data, indices_data, lr, size, length);
+            momentum_sparse_second_phase << <dense_blocks, dense_threads, 0,
+                *(cudaStream_t*)
+                stream_handle->handle >> > (
+                    param_data, velocity_data, momentum, total_size);
         } else {
-            momentum_sparse_first_phase<<<blocks, threads>>>(
+            momentum_sparse_first_phase << <blocks, threads >> > (
                 velocity_data, grad_data, indices_data, lr, size, length);
-            momentum_sparse_second_phase<<<dense_blocks, dense_threads>>>(
+            momentum_sparse_second_phase << <dense_blocks, dense_threads >> > (
                 param_data, velocity_data, momentum, total_size);
         }
     }
     return 0;
 }
 
-__global__ void indexedslices2dense_kernel(const float *values_data,
-                                   const float *indices_data,
-                                   float *new_values_data, size_t size,
-                                   size_t length) {
+__global__ void indexedslices2dense_kernel(const float* values_data,
+    const float* indices_data,
+    float* new_values_data, size_t size,
+    size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -241,22 +241,22 @@ __global__ void indexedslices2dense_kernel(const float *values_data,
     size_t offset = thread_ind % length;
     int to_ind = indices_data[ind];
     const float cur_value = values_data[thread_ind];
-    float *new_value_ptr = new_values_data + length * to_ind + offset;
+    float* new_value_ptr = new_values_data + length * to_ind + offset;
     *new_value_ptr = cur_value;
 }
 
-int IndexedSlices2Dense(const DLArrayHandle values, 
-                        const DLArrayHandle indices,
-                        DLArrayHandle new_values, 
-                        DLStreamHandle stream_handle){
+int IndexedSlices2Dense(const DLArrayHandle values,
+    const DLArrayHandle indices,
+    DLArrayHandle new_values,
+    DLStreamHandle stream_handle) {
     size_t size = 1;
     size_t length = new_values->shape[new_values->ndim - 1];
     for (int i = 0; i < values->ndim; ++i) {
         size *= values->shape[i];
     }
-    const float *values_data = (const float *)values->data;
-    const float *indices_data = (const float *)indices->data;
-    float *new_values_data = (float *)new_values->data;
+    const float* values_data = (const float*)values->data;
+    const float* indices_data = (const float*)indices->data;
+    float* new_values_data = (float*)new_values->data;
 
     dim3 blocks;
     dim3 threads;
@@ -269,20 +269,20 @@ int IndexedSlices2Dense(const DLArrayHandle values,
     }
 
     if (stream_handle)
-        indexedslices2dense_kernel<<<blocks, threads, 0,
-                                *(cudaStream_t *)stream_handle->handle>>>(
-                        values_data, indices_data, new_values_data, size, length);
+        indexedslices2dense_kernel << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
+            values_data, indices_data, new_values_data, size, length);
     else
-        indexedslices2dense_kernel<<<blocks, threads>>>(values_data, indices_data,
-                                new_values_data, size, length);
+        indexedslices2dense_kernel << <blocks, threads >> > (values_data, indices_data,
+            new_values_data, size, length);
 
     return 0;
 }
 
-__global__ void deduplicate_kernel(const float *origin_data,
-                                   const float *inverse_data,
-                                   float *compressed_data, size_t size,
-                                   size_t length) {
+__global__ void deduplicate_kernel(const float* origin_data,
+    const float* inverse_data,
+    float* compressed_data, size_t size,
+    size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -290,22 +290,22 @@ __global__ void deduplicate_kernel(const float *origin_data,
     size_t offset = thread_ind % length;
     int com_ind = inverse_data[ind];
     const float cur_origin = origin_data[thread_ind];
-    float *compressed_ptr = compressed_data + length * com_ind + offset;
+    float* compressed_ptr = compressed_data + length * com_ind + offset;
     atomicAdd(compressed_ptr, cur_origin);
 }
 
 int DeduplicateIndexedSlices(const DLArrayHandle origin,
-                             const DLArrayHandle inverse,
-                             DLArrayHandle compressed,
-                             DLStreamHandle stream_handle = NULL) {
+    const DLArrayHandle inverse,
+    DLArrayHandle compressed,
+    DLStreamHandle stream_handle = NULL) {
     size_t size = 1;
     size_t length = compressed->shape[compressed->ndim - 1];
     for (int i = 0; i < origin->ndim; ++i) {
         size *= origin->shape[i];
     }
-    const float *origin_data = (const float *)origin->data;
-    const float *inverse_data = (const float *)inverse->data;
-    float *compressed_data = (float *)compressed->data;
+    const float* origin_data = (const float*)origin->data;
+    const float* inverse_data = (const float*)inverse->data;
+    float* compressed_data = (float*)compressed->data;
 
     dim3 blocks;
     dim3 threads;
@@ -318,20 +318,20 @@ int DeduplicateIndexedSlices(const DLArrayHandle origin,
     }
 
     if (stream_handle)
-        deduplicate_kernel<<<blocks, threads, 0,
-                             *(cudaStream_t *)stream_handle->handle>>>(
+        deduplicate_kernel << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
             origin_data, inverse_data, compressed_data, size, length);
     else
-        deduplicate_kernel<<<blocks, threads>>>(origin_data, inverse_data,
-                                                compressed_data, size, length);
+        deduplicate_kernel << <blocks, threads >> > (origin_data, inverse_data,
+            compressed_data, size, length);
 
     return 0;
 }
 
-__global__ void adagrad_sparse_update(float *param_data, const float *grad_data,
-                                      const float *indices_data,
-                                      float *acc_data, float lr, float eps,
-                                      size_t size, size_t length) {
+__global__ void adagrad_sparse_update(float* param_data, const float* grad_data,
+    const float* indices_data,
+    float* acc_data, float lr, float eps,
+    size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -341,8 +341,8 @@ __global__ void adagrad_sparse_update(float *param_data, const float *grad_data,
     int grad_ind = indices_data[ind];
     const float cur_grad = grad_data[thread_ind];
     size_t total_offset = length * grad_ind + offset;
-    float *acc_ptr = acc_data + total_offset;
-    float *param_ptr = param_data + total_offset;
+    float* acc_ptr = acc_data + total_offset;
+    float* param_ptr = param_data + total_offset;
 
     float cur_acc = *acc_ptr + cur_grad * cur_grad;
     *acc_ptr = cur_acc;
@@ -350,20 +350,20 @@ __global__ void adagrad_sparse_update(float *param_data, const float *grad_data,
 }
 
 int AdaGradOptimizerSparseUpdate(DLArrayHandle param,
-                                 const DLArrayHandle grad_indices,
-                                 const DLArrayHandle grad_values,
-                                 DLArrayHandle acc, float lr, float eps,
-                                 DLStreamHandle stream_handle = NULL) {
+    const DLArrayHandle grad_indices,
+    const DLArrayHandle grad_values,
+    DLArrayHandle acc, float lr, float eps,
+    DLStreamHandle stream_handle = NULL) {
     size_t size = 1;
     size_t length = param->shape[1];
     for (int i = 0; i < grad_values->ndim; ++i) {
         size *= grad_values->shape[i];
     }
 
-    float *param_data = (float *)param->data;
-    const float *grad_data = (const float *)grad_values->data;
-    const float *indices_data = (const float *)grad_indices->data;
-    float *acc_data = (float *)acc->data;
+    float* param_data = (float*)param->data;
+    const float* grad_data = (const float*)grad_values->data;
+    const float* indices_data = (const float*)grad_indices->data;
+    float* acc_data = (float*)acc->data;
 
     dim3 blocks;
     dim3 threads;
@@ -376,23 +376,23 @@ int AdaGradOptimizerSparseUpdate(DLArrayHandle param,
     }
 
     if (stream_handle) {
-        adagrad_sparse_update<<<blocks, threads, 0,
-                                *(cudaStream_t *)stream_handle->handle>>>(
-            param_data, grad_data, indices_data, acc_data, lr, eps, size,
-            length);
+        adagrad_sparse_update << <blocks, threads, 0,
+            *(cudaStream_t*)stream_handle->handle >> > (
+                param_data, grad_data, indices_data, acc_data, lr, eps, size,
+                length);
     } else {
-        adagrad_sparse_update<<<blocks, threads>>>(param_data, grad_data,
-                                                   indices_data, acc_data, lr,
-                                                   eps, size, length);
+        adagrad_sparse_update << <blocks, threads >> > (param_data, grad_data,
+            indices_data, acc_data, lr,
+            eps, size, length);
     }
     return 0;
 }
 
-__global__ void adam_sparse_update(float *param, const float *grad_data,
-                                   const float *indices_data, float *m,
-                                   float *v, float lr, float beta1, float beta2,
-                                   float beta1t, float beta2t, float eps,
-                                   size_t size, size_t length) {
+__global__ void adam_sparse_process(const float* param, float* grad_data,
+    const float* indices_data, float* m,
+    float* v, float lr, float beta1, float beta2,
+    float beta1t, float beta2t, float eps,
+    size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -402,9 +402,36 @@ __global__ void adam_sparse_update(float *param, const float *grad_data,
     int grad_ind = indices_data[ind];
     const float cur_grad = grad_data[thread_ind];
     size_t total_offset = length * grad_ind + offset;
-    float *m_ptr = m + total_offset;
-    float *v_ptr = v + total_offset;
-    float *param_ptr = param + total_offset;
+    float* m_ptr = m + total_offset;
+    float* v_ptr = v + total_offset;
+    // float* param_ptr = param + total_offset;
+
+    float cur_m = beta1 * (*m_ptr) + (1 - beta1) * cur_grad;
+    float cur_v = beta2 * (*v_ptr) + (1 - beta2) * cur_grad * cur_grad;
+    *m_ptr = cur_m;
+    *v_ptr = cur_v;
+    cur_m /= (1 - beta1t);
+    cur_v /= (1 - beta2t);
+    grad_data[thread_ind] = -lr * cur_m / (sqrtf(cur_v) + eps);
+}
+
+__global__ void adam_sparse_update(float* param, const float* grad_data,
+    const float* indices_data, float* m,
+    float* v, float lr, float beta1, float beta2,
+    float beta1t, float beta2t, float eps,
+    size_t size, size_t length) {
+    size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (thread_ind >= size)
+        return;
+    size_t ind = thread_ind / length;
+    size_t offset = thread_ind % length;
+
+    int grad_ind = indices_data[ind];
+    const float cur_grad = grad_data[thread_ind];
+    size_t total_offset = length * grad_ind + offset;
+    float* m_ptr = m + total_offset;
+    float* v_ptr = v + total_offset;
+    float* param_ptr = param + total_offset;
 
     float cur_m = beta1 * (*m_ptr) + (1 - beta1) * cur_grad;
     float cur_v = beta2 * (*v_ptr) + (1 - beta2) * cur_grad * cur_grad;
@@ -416,12 +443,12 @@ __global__ void adam_sparse_update(float *param, const float *grad_data,
 }
 
 int AdamOptimizerSparseUpdate(DLArrayHandle param,
-                              const DLArrayHandle grad_indices,
-                              const DLArrayHandle grad_values,
-                              DLArrayHandle expavg, DLArrayHandle expavgsq,
-                              float lr, float beta1, float beta2, float beta1t,
-                              float beta2t, float eps,
-                              DLStreamHandle stream_handle = NULL) {
+    const DLArrayHandle grad_indices,
+    DLArrayHandle grad_values,
+    DLArrayHandle expavg, DLArrayHandle expavgsq,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, bool only_process_grad,
+    DLStreamHandle stream_handle = NULL) {
     size_t size = 1;
     size_t length = param->shape[1];
     for (int i = 0; i < grad_values->ndim; ++i) {
@@ -430,11 +457,12 @@ int AdamOptimizerSparseUpdate(DLArrayHandle param,
 
     dim3 blocks;
     dim3 threads;
-    float *param_data = (float *)param->data;
-    const float *grad_data = (const float *)grad_values->data;
-    const float *indices_data = (const float *)grad_indices->data;
-    float *m_data = (float *)expavg->data;
-    float *v_data = (float *)expavgsq->data;
+    float* param_data = (float*)param->data;
+    float* grad_data = (float*)grad_values->data;
+    const float* indices_data = (const float*)grad_indices->data;
+    float* m_data = (float*)expavg->data;
+    float* v_data = (float*)expavgsq->data;
+    cudaStream_t stream = stream_handle ? *(cudaStream_t*)stream_handle->handle : cudaStreamDefault;
     if (size <= 1024) {
         threads.x = size;
         blocks.x = 1;
@@ -442,23 +470,22 @@ int AdamOptimizerSparseUpdate(DLArrayHandle param,
         threads.x = 1024;
         blocks.x = (size + 1023) / 1024;
     }
-    if (stream_handle)
-        adam_sparse_update<<<blocks, threads, 0,
-                             *(cudaStream_t *)stream_handle->handle>>>(
+    if (only_process_grad)
+        adam_sparse_process << <blocks, threads, 0, stream >> > (
             param_data, grad_data, indices_data, m_data, v_data, lr, beta1,
             beta2, beta1t, beta2t, eps, size, length);
     else
-        adam_sparse_update<<<blocks, threads>>>(
+        adam_sparse_update << <blocks, threads, 0, stream >> > (
             param_data, grad_data, indices_data, m_data, v_data, lr, beta1,
             beta2, beta1t, beta2t, eps, size, length);
     return 0;
 }
 
-__global__ void adamw_sparse_update(float *param, const float *grad_data,
-                                   const float *indices_data, float *m,
-                                   float *v, float lr, float beta1, float beta2,
-                                   float beta1t, float beta2t, float eps, 
-                                   float weight_decay, size_t size, size_t length) {
+__global__ void adamw_sparse_update(float* param, const float* grad_data,
+    const float* indices_data, float* m,
+    float* v, float lr, float beta1, float beta2,
+    float beta1t, float beta2t, float eps,
+    float weight_decay, size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -468,9 +495,9 @@ __global__ void adamw_sparse_update(float *param, const float *grad_data,
     int grad_ind = indices_data[ind];
     const float cur_grad = grad_data[thread_ind];
     size_t total_offset = length * grad_ind + offset;
-    float *m_ptr = m + total_offset;
-    float *v_ptr = v + total_offset;
-    float *param_ptr = param + total_offset;
+    float* m_ptr = m + total_offset;
+    float* v_ptr = v + total_offset;
+    float* param_ptr = param + total_offset;
 
     float cur_m = beta1 * (*m_ptr) + (1 - beta1) * cur_grad;
     float cur_v = beta2 * (*v_ptr) + (1 - beta2) * cur_grad * cur_grad;
@@ -482,65 +509,11 @@ __global__ void adamw_sparse_update(float *param, const float *grad_data,
     *(param_ptr) -= lr * (update + weight_decay * (*param_ptr));
 }
 
-int AdamWOptimizerSparseUpdate(DLArrayHandle param,
-                              const DLArrayHandle grad_indices,
-                              const DLArrayHandle grad_values,
-                              DLArrayHandle expavg, DLArrayHandle expavgsq,
-                              float lr, float beta1, float beta2, float beta1t,
-                              float beta2t, float eps, float weight_decay, 
-                              DLStreamHandle stream_handle = NULL) {
-    size_t size = 1;
-    size_t length = param->shape[1];
-    for (int i = 0; i < grad_values->ndim; ++i) {
-        size *= grad_values->shape[i];
-    }
-
-    dim3 blocks;
-    dim3 threads;
-    float *param_data = (float *)param->data;
-    const float *grad_data = (const float *)grad_values->data;
-    const float *indices_data = (const float *)grad_indices->data;
-    float *m_data = (float *)expavg->data;
-    float *v_data = (float *)expavgsq->data;
-    if (size <= 1024) {
-        threads.x = size;
-        blocks.x = 1;
-    } else {
-        threads.x = 1024;
-        blocks.x = (size + 1023) / 1024;
-    }
-    if (stream_handle)
-        adamw_sparse_update<<<blocks, threads, 0,
-                             *(cudaStream_t *)stream_handle->handle>>>(
-            param_data, grad_data, indices_data, m_data, v_data, lr, beta1,
-            beta2, beta1t, beta2t, eps, weight_decay, size, length);
-    else
-        adamw_sparse_update<<<blocks, threads>>>(
-            param_data, grad_data, indices_data, m_data, v_data, lr, beta1,
-            beta2, beta1t, beta2t, eps, weight_decay, size, length);
-    return 0;
-}
-
-__global__ void get_indexed_params(float *indexed_param, const float *param, 
-                                const float *indices_data,
-                                size_t size, size_t length){
-    size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
-    if (thread_ind >= size)
-        return;
-    size_t ind = thread_ind / length;
-    size_t offset = thread_ind % length;
-
-    int grad_ind = indices_data[ind];
-    size_t total_offset = length * grad_ind + offset;
-    const float *param_ptr = param + total_offset;
-    indexed_param[thread_ind] = *(param_ptr);
-}
-
-__global__ void calc_lamb_update_sparse(float *update, const float *grad_data,
-                                   const float *indices_data, float *m,
-                                   float *v, float beta1, float beta2,
-                                   float beta1t, float beta2t, float eps, 
-                                   size_t size, size_t length) {
+__global__ void adamw_sparse_process(const float* param, float* grad_data,
+    const float* indices_data, float* m,
+    float* v, float lr, float beta1, float beta2,
+    float beta1t, float beta2t, float eps,
+    float weight_decay, size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -550,8 +523,90 @@ __global__ void calc_lamb_update_sparse(float *update, const float *grad_data,
     int grad_ind = indices_data[ind];
     const float cur_grad = grad_data[thread_ind];
     size_t total_offset = length * grad_ind + offset;
-    float *m_ptr = m + total_offset;
-    float *v_ptr = v + total_offset;
+    float* m_ptr = m + total_offset;
+    float* v_ptr = v + total_offset;
+    const float* param_ptr = param + total_offset;
+
+    float cur_m = beta1 * (*m_ptr) + (1 - beta1) * cur_grad;
+    float cur_v = beta2 * (*v_ptr) + (1 - beta2) * cur_grad * cur_grad;
+    *m_ptr = cur_m;
+    *v_ptr = cur_v;
+    cur_m /= (1 - beta1t);
+    cur_v /= (1 - beta2t);
+    float update = cur_m / (sqrtf(cur_v) + eps);
+    grad_data[thread_ind] = -lr * (update + weight_decay * (*param_ptr));
+}
+
+int AdamWOptimizerSparseUpdate(DLArrayHandle param,
+    const DLArrayHandle grad_indices,
+    DLArrayHandle grad_values,
+    DLArrayHandle expavg, DLArrayHandle expavgsq,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, float weight_decay, bool only_process_grad,
+    DLStreamHandle stream_handle = NULL) {
+    size_t size = 1;
+    size_t length = param->shape[1];
+    for (int i = 0; i < grad_values->ndim; ++i) {
+        size *= grad_values->shape[i];
+    }
+
+    dim3 blocks;
+    dim3 threads;
+    float* param_data = (float*)param->data;
+    float* grad_data = (float*)grad_values->data;
+    const float* indices_data = (const float*)grad_indices->data;
+    float* m_data = (float*)expavg->data;
+    float* v_data = (float*)expavgsq->data;
+    if (size <= 1024) {
+        threads.x = size;
+        blocks.x = 1;
+    } else {
+        threads.x = 1024;
+        blocks.x = (size + 1023) / 1024;
+    }
+    cudaStream_t stream = stream_handle ? *(cudaStream_t*)stream_handle->handle : cudaStreamDefault;
+    if (only_process_grad)
+        adamw_sparse_process << <blocks, threads, 0, stream >> > (
+            param_data, grad_data, indices_data, m_data, v_data, lr, beta1,
+            beta2, beta1t, beta2t, eps, weight_decay, size, length);
+    else
+        adamw_sparse_update << <blocks, threads, 0, stream >> > (
+            param_data, grad_data, indices_data, m_data, v_data, lr, beta1,
+            beta2, beta1t, beta2t, eps, weight_decay, size, length);
+    return 0;
+}
+
+__global__ void get_indexed_params(float* indexed_param, const float* param,
+    const float* indices_data,
+    size_t size, size_t length) {
+    size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (thread_ind >= size)
+        return;
+    size_t ind = thread_ind / length;
+    size_t offset = thread_ind % length;
+
+    int grad_ind = indices_data[ind];
+    size_t total_offset = length * grad_ind + offset;
+    const float* param_ptr = param + total_offset;
+    indexed_param[thread_ind] = *(param_ptr);
+}
+
+__global__ void calc_lamb_update_sparse(float* update, const float* grad_data,
+    const float* indices_data, float* m,
+    float* v, float beta1, float beta2,
+    float beta1t, float beta2t, float eps,
+    size_t size, size_t length) {
+    size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (thread_ind >= size)
+        return;
+    size_t ind = thread_ind / length;
+    size_t offset = thread_ind % length;
+
+    int grad_ind = indices_data[ind];
+    const float cur_grad = grad_data[thread_ind];
+    size_t total_offset = length * grad_ind + offset;
+    float* m_ptr = m + total_offset;
+    float* v_ptr = v + total_offset;
 
     float cur_m = beta1 * (*m_ptr) + (1 - beta1) * cur_grad;
     float cur_v = beta2 * (*v_ptr) + (1 - beta2) * cur_grad * cur_grad;
@@ -562,9 +617,9 @@ __global__ void calc_lamb_update_sparse(float *update, const float *grad_data,
     update[thread_ind] = cur_m / (sqrtf(cur_v) + eps);
 }
 
-__global__ void lamb_update_step_sparse(float *param, const float *update, const float *indices_data, 
-                                        float lr, float weight_decay, float *norm2_param, 
-                                        float *norm2_update, size_t size, size_t length){
+__global__ void lamb_update_step_sparse(float* param, const float* update, const float* indices_data,
+    float lr, float weight_decay, float* norm2_param,
+    float* norm2_update, size_t size, size_t length) {
     size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread_ind >= size)
         return;
@@ -574,17 +629,17 @@ __global__ void lamb_update_step_sparse(float *param, const float *update, const
     int grad_ind = indices_data[ind];
     const float cur_update = update[thread_ind];
     size_t total_offset = length * grad_ind + offset;
-    float *param_ptr = param + total_offset;
+    float* param_ptr = param + total_offset;
     *(param_ptr) -= lr * (norm2_param[0] / norm2_update[0]) * (cur_update + weight_decay * (*param_ptr));
 }
 
 int LambOptimizerSparseUpdate(DLArrayHandle param,
-                              const DLArrayHandle grad_indices,
-                              const DLArrayHandle grad_values,
-                              DLArrayHandle expavg, DLArrayHandle expavgsq,
-                              float lr, float beta1, float beta2, float beta1t,
-                              float beta2t, float eps, float weight_decay, 
-                              DLStreamHandle stream_handle = NULL) {
+    const DLArrayHandle grad_indices,
+    const DLArrayHandle grad_values,
+    DLArrayHandle expavg, DLArrayHandle expavgsq,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, float weight_decay,
+    DLStreamHandle stream_handle = NULL) {
     int dev_id = (param->ctx).device_id;
     cudaSetDevice(dev_id);
     cudnn_init(dev_id, stream_handle);
@@ -608,17 +663,17 @@ int LambOptimizerSparseUpdate(DLArrayHandle param,
     if (ndim < 4)
         ndim = 4;
     size_t cpu_mem = ndim * sizeof(int);
-    int *dim_sparse = (int *)malloc(cpu_mem);
-    int *stride_sparse = (int *)malloc(cpu_mem);
-    int *dimC = (int *)malloc(cpu_mem);
-    int *strideC = (int *)malloc(cpu_mem);
+    int* dim_sparse = (int*)malloc(cpu_mem);
+    int* stride_sparse = (int*)malloc(cpu_mem);
+    int* dimC = (int*)malloc(cpu_mem);
+    int* strideC = (int*)malloc(cpu_mem);
 
     size_t size_sparse = 1;
     size_t length = param->shape[1];
     for (int i = 0; i < grad_values->ndim; ++i) {
         size_sparse *= grad_values->shape[i];
     }
-    
+
     int temp_stride_sparse = 1;
     int temp_strideC = 1;
 
@@ -634,11 +689,11 @@ int LambOptimizerSparseUpdate(DLArrayHandle param,
 
     dim3 blocks;
     dim3 threads;
-    float *param_data = (float *)param->data;
-    const float *grad_data = (const float *)grad_values->data;
-    const float *indices_data = (const float *)grad_indices->data;
-    float *m_data = (float *)expavg->data;
-    float *v_data = (float *)expavgsq->data;
+    float* param_data = (float*)param->data;
+    const float* grad_data = (const float*)grad_values->data;
+    const float* indices_data = (const float*)grad_indices->data;
+    float* m_data = (float*)expavg->data;
+    float* v_data = (float*)expavgsq->data;
     if (size_sparse <= 1024) {
         threads.x = size_sparse;
         blocks.x = 1;
@@ -650,62 +705,62 @@ int LambOptimizerSparseUpdate(DLArrayHandle param,
     if (is_chunk_init(dev_id) == false) {
         chunk_init(dev_id);
     }
-    void *norm2_param = find_chunk(1 * sizeof(float), dev_id);
-    void *norm2_update = find_chunk(1 * sizeof(float), dev_id);
-    void *workspace = find_chunk(byte_size_sparse, dev_id);
-    void *intermediate = find_chunk(byte_size_sparse, dev_id);
+    void* norm2_param = find_chunk(1 * sizeof(float), dev_id);
+    void* norm2_update = find_chunk(1 * sizeof(float), dev_id);
+    void* workspace = find_chunk(byte_size_sparse, dev_id);
+    void* intermediate = find_chunk(byte_size_sparse, dev_id);
 
     // Get indexed params to intermediate for Norm2
     if (stream_handle)
-        get_indexed_params<<<blocks, threads, 0,
-                      *(cudaStream_t *)stream_handle->handle>>>(
-            (float *)intermediate, (const float *)param_data, indices_data, size_sparse, length);
+        get_indexed_params << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
+            (float*)intermediate, (const float*)param_data, indices_data, size_sparse, length);
     else
-        get_indexed_params<<<blocks, threads>>>(
-            (float *)intermediate, (const float *)param_data, indices_data, size_sparse, length);
+        get_indexed_params << <blocks, threads >> > (
+            (float*)intermediate, (const float*)param_data, indices_data, size_sparse, length);
 
 
     // Calculate Norm2 of param indexed
     CUDNN_CALL(cudnnSetTensorNdDescriptor(adesc, CUDNN_DATA_FLOAT, ndim, dim_sparse,
-                                            stride_sparse));
+        stride_sparse));
     CUDNN_CALL(cudnnSetTensorNdDescriptor(cdesc, CUDNN_DATA_FLOAT, ndim, dimC,
-                                            strideC));
+        strideC));
     CUDNN_CALL(cudnnReduceTensor(cudnn_map[dev_id], rtd, NULL, 0,
-                                    workspace, byte_size_sparse, &one, adesc,
-                                    (const void *)intermediate, &zero, cdesc,
-                                    norm2_param));
+        workspace, byte_size_sparse, &one, adesc,
+        (const void*)intermediate, &zero, cdesc,
+        norm2_param));
 
     // Calculate update
     if (stream_handle)
-        calc_lamb_update_sparse<<<blocks, threads, 0,
-                      *(cudaStream_t *)stream_handle->handle>>>(
-            (float *)intermediate, grad_data, indices_data, m_data, v_data, beta1, beta2, beta1t,
+        calc_lamb_update_sparse << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
+            (float*)intermediate, grad_data, indices_data, m_data, v_data, beta1, beta2, beta1t,
             beta2t, eps, size_sparse, length);
     else
-        calc_lamb_update_sparse<<<blocks, threads>>>((float *)intermediate, grad_data, indices_data, m_data, v_data,
-                                         beta1, beta2, beta1t, beta2t, eps,
-                                         size_sparse, length);
+        calc_lamb_update_sparse << <blocks, threads >> > ((float*)intermediate, grad_data, indices_data, m_data, v_data,
+            beta1, beta2, beta1t, beta2t, eps,
+            size_sparse, length);
 
-    // Calculate Norm2 of update    
+    // Calculate Norm2 of update
     CUDNN_CALL(cudnnSetTensorNdDescriptor(adesc, CUDNN_DATA_FLOAT, ndim, dim_sparse,
-                                            stride_sparse));
+        stride_sparse));
     CUDNN_CALL(cudnnSetTensorNdDescriptor(cdesc, CUDNN_DATA_FLOAT, ndim, dimC,
-                                            strideC));
+        strideC));
     CUDNN_CALL(cudnnReduceTensor(cudnn_map[dev_id], rtd, NULL, 0,
-                                workspace, byte_size_sparse, &one, adesc,
-                                (const void *)intermediate, &zero, cdesc,
-                                norm2_update));
+        workspace, byte_size_sparse, &one, adesc,
+        (const void*)intermediate, &zero, cdesc,
+        norm2_update));
 
     // Update step
     if (stream_handle)
-        lamb_update_step_sparse<<<blocks, threads, 0,
-                                *(cudaStream_t *)stream_handle->handle>>>(
-                param_data, (const float *)intermediate, indices_data, lr, weight_decay, 
-                (float *)norm2_param, (float *)norm2_update, size_sparse, length);
+        lamb_update_step_sparse << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
+            param_data, (const float*)intermediate, indices_data, lr, weight_decay,
+            (float*)norm2_param, (float*)norm2_update, size_sparse, length);
     else
-        lamb_update_step_sparse<<<blocks, threads>>>(
-                param_data, (const float *)intermediate, indices_data, lr, weight_decay, 
-                (float *)norm2_param, (float *)norm2_update, size_sparse, length);
+        lamb_update_step_sparse << <blocks, threads >> > (
+            param_data, (const float*)intermediate, indices_data, lr, weight_decay,
+            (float*)norm2_param, (float*)norm2_update, size_sparse, length);
 
     del_chunk(norm2_param, dev_id);
     del_chunk(norm2_update, dev_id);

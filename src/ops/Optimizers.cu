@@ -1,6 +1,6 @@
 #include "gpu_runtime.h"
 
-static const size_t DIM_BLOCK=1024;
+static const size_t DIM_BLOCK = 1024;
 #define DIM_GRID(x) ( ((size_t)x + DIM_BLOCK - 1) / DIM_BLOCK )
 
 __global__ void add_l2_regularization(const float* param, float* grad,
@@ -20,7 +20,7 @@ int AddL2Regularization(const DLArrayHandle param, DLArrayHandle grad,
     cudaStream_t stream = stream_handle ? *(cudaStream_t*)stream_handle->handle : cudaStreamDefault;
     const float* param_data = (const float*)param->data;
     float* grad_data = (float*)grad->data;
-    add_l2_regularization<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+    add_l2_regularization << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
         param_data, grad_data, l2reg, size);
     return 0;
 }
@@ -42,7 +42,7 @@ int SGDOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad, float lr,
     cudaStream_t stream = stream_handle ? *(cudaStream_t*)stream_handle->handle : cudaStreamDefault;
     float* param_data = (float*)param->data;
     const float* grad_data = (const float*)grad->data;
-    sgd_update<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(param_data, grad_data, lr, size);
+    sgd_update << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (param_data, grad_data, lr, size);
     return 0;
 }
 
@@ -101,16 +101,16 @@ int MomentumOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
     float* grad_data = (float*)grad->data;
     float* velocity_data = (float*)velocity->data;
     if (nesterov && only_process_grad) {
-        nesterov_momentum_process<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        nesterov_momentum_process << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, velocity_data, lr, momentum, size);
     } else if (nesterov && !only_process_grad) {
-        nesterov_momentum_update<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        nesterov_momentum_update << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, velocity_data, lr, momentum, size);
     } else if (!nesterov && only_process_grad) {
-        momentum_process<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        momentum_process << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, velocity_data, lr, momentum, size);
     } else {
-        momentum_update<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        momentum_update << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, velocity_data, lr, momentum, size);
     }
     return 0;
@@ -146,10 +146,10 @@ int AdaGradOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
     float* grad_data = (float*)grad->data;
     float* acc_data = (float*)acc->data;
     if (only_process_grad)
-        adagrad_process<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        adagrad_process << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, acc_data, lr, eps, size);
     else
-        adagrad_update<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        adagrad_update << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, acc_data, lr, eps, size);
     return 0;
 }
@@ -194,19 +194,19 @@ int AdamOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
     float* m_data = (float*)expavg->data;
     float* v_data = (float*)expavgsq->data;
     if (only_process_grad)
-        adam_process<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        adam_process << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, m_data, v_data, lr, beta1, beta2, beta1t,
             beta2t, eps, size);
     else
-        adam_update<<<DIM_GRID(size), DIM_BLOCK, 0, stream>>>(
+        adam_update << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, m_data, v_data, lr, beta1, beta2, beta1t,
             beta2t, eps, size);
     return 0;
 }
 
-__global__ void adamw_update(float *param, const float *grad, float *m, float *v,
-                            float lr, float beta1, float beta2, float beta1t,
-                            float beta2t, float eps, float weight_decay, size_t size) {
+__global__ void adamw_update(float* param, const float* grad, float* m, float* v,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, float weight_decay, size_t size) {
     size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (ind >= size)
         return;
@@ -218,42 +218,47 @@ __global__ void adamw_update(float *param, const float *grad, float *m, float *v
     param[ind] = param[ind] - lr * (update + weight_decay * param[ind]);
 }
 
-int AdamWOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
-                        DLArrayHandle expavg, DLArrayHandle expavgsq, float lr,
-                        float beta1, float beta2, float beta1t, float beta2t,
-                        float eps, float weight_decay, DLStreamHandle stream_handle = NULL) {
+__global__ void adamw_process(const float* param, float* grad, float* m, float* v,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, float weight_decay, size_t size) {
+    size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ind >= size)
+        return;
+    m[ind] = beta1 * m[ind] + (1 - beta1) * grad[ind];
+    v[ind] = beta2 * v[ind] + (1 - beta2) * grad[ind] * grad[ind];
+    float m_local = m[ind] / (1 - beta1t);
+    float v_local = v[ind] / (1 - beta2t);
+    float update = m_local / (sqrtf(v_local) + eps);
+    grad[ind] = -lr * (update + weight_decay * param[ind]);
+}
+
+int AdamWOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
+    DLArrayHandle expavg, DLArrayHandle expavgsq, float lr,
+    float beta1, float beta2, float beta1t, float beta2t,
+    float eps, float weight_decay, bool only_process_grad, DLStreamHandle stream_handle = NULL) {
     size_t size = 1;
     for (index_t i = 0; i < param->ndim; ++i) {
         size *= param->shape[i];
     }
-    dim3 blocks;
-    dim3 threads;
-    float *param_data = (float *)param->data;
-    const float *grad_data = (const float *)grad->data;
-    float *m_data = (float *)expavg->data;
-    float *v_data = (float *)expavgsq->data;
-    if (size <= 1024) {
-        threads.x = size;
-        blocks.x = 1;
-    } else {
-        threads.x = 1024;
-        blocks.x = (size + 1023) / 1024;
-    }
-    if (stream_handle)
-        adamw_update<<<blocks, threads, 0,
-                      *(cudaStream_t *)stream_handle->handle>>>(
+    float* param_data = (float*)param->data;
+    float* grad_data = (float*)grad->data;
+    float* m_data = (float*)expavg->data;
+    float* v_data = (float*)expavgsq->data;
+    cudaStream_t stream = stream_handle ? *(cudaStream_t*)stream_handle->handle : cudaStreamDefault;
+    if (only_process_grad)
+        adamw_process << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
             param_data, grad_data, m_data, v_data, lr, beta1, beta2, beta1t,
             beta2t, eps, weight_decay, size);
     else
-        adamw_update<<<blocks, threads>>>(param_data, grad_data, m_data, v_data,
-                                         lr, beta1, beta2, beta1t, beta2t, eps,
-                                         weight_decay, size);
+        adamw_update << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
+            param_data, grad_data, m_data, v_data, lr, beta1, beta2, beta1t,
+            beta2t, eps, weight_decay, size);
     return 0;
 }
 
-__global__ void calc_lamb_update(float *update, const float *grad, float *m, float *v,
-                            float beta1, float beta2, float beta1t,
-                            float beta2t, float eps, size_t size) {
+__global__ void calc_lamb_update(float* update, const float* grad, float* m, float* v,
+    float beta1, float beta2, float beta1t,
+    float beta2t, float eps, size_t size) {
     size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (ind >= size)
         return;
@@ -264,8 +269,8 @@ __global__ void calc_lamb_update(float *update, const float *grad, float *m, flo
     update[ind] = m_local / (sqrtf(v_local) + eps);
 }
 
-__global__ void lamb_update_step(float *param, const float *update, float lr, 
-                                float weight_decay, float *norm2_param, float *norm2_update, size_t size){
+__global__ void lamb_update_step(float* param, const float* update, float lr,
+    float weight_decay, float* norm2_param, float* norm2_update, size_t size) {
     size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
     if (ind >= size)
         return;
@@ -273,9 +278,9 @@ __global__ void lamb_update_step(float *param, const float *update, float lr,
 }
 
 int LambOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
-                        DLArrayHandle expavg, DLArrayHandle expavgsq, float lr,
-                        float beta1, float beta2, float beta1t, float beta2t,
-                        float eps, float weight_decay, DLStreamHandle stream_handle = NULL) {
+    DLArrayHandle expavg, DLArrayHandle expavgsq, float lr,
+    float beta1, float beta2, float beta1t, float beta2t,
+    float eps, float weight_decay, DLStreamHandle stream_handle = NULL) {
     int dev_id = (param->ctx).device_id;
     cudaSetDevice(dev_id);
     cudnn_init(dev_id, stream_handle);
@@ -299,10 +304,10 @@ int LambOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
     if (ndim < 4)
         ndim = 4;
     size_t cpu_mem = ndim * sizeof(int);
-    int *dimA = (int *)malloc(cpu_mem);
-    int *strideA = (int *)malloc(cpu_mem);
-    int *dimC = (int *)malloc(cpu_mem);
-    int *strideC = (int *)malloc(cpu_mem);
+    int* dimA = (int*)malloc(cpu_mem);
+    int* strideA = (int*)malloc(cpu_mem);
+    int* dimC = (int*)malloc(cpu_mem);
+    int* strideC = (int*)malloc(cpu_mem);
 
     int temp_strideA = 1;
     int temp_strideC = 1;
@@ -318,16 +323,16 @@ int LambOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
     size_t size = temp_strideA * sizeof(float);
 
     CUDNN_CALL(cudnnSetTensorNdDescriptor(adesc, CUDNN_DATA_FLOAT, ndim, dimA,
-                                            strideA));
+        strideA));
     CUDNN_CALL(cudnnSetTensorNdDescriptor(cdesc, CUDNN_DATA_FLOAT, ndim, dimC,
-                                            strideC));
+        strideC));
 
     dim3 blocks;
     dim3 threads;
-    float *param_data = (float *)param->data;
-    const float *grad_data = (const float *)grad->data;
-    float *m_data = (float *)expavg->data;
-    float *v_data = (float *)expavgsq->data;
+    float* param_data = (float*)param->data;
+    const float* grad_data = (const float*)grad->data;
+    float* m_data = (float*)expavg->data;
+    float* v_data = (float*)expavgsq->data;
     if (temp_strideA <= 1024) {
         threads.x = temp_strideA;
         blocks.x = 1;
@@ -339,43 +344,43 @@ int LambOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
     if (is_chunk_init(dev_id) == false) {
         chunk_init(dev_id);
     }
-    void *norm2_param = find_chunk(1 * sizeof(float), dev_id);
-    void *norm2_update = find_chunk(1 * sizeof(float), dev_id);
-    void *workspace = find_chunk(size, dev_id);
-    void *update = find_chunk(size, dev_id);
+    void* norm2_param = find_chunk(1 * sizeof(float), dev_id);
+    void* norm2_update = find_chunk(1 * sizeof(float), dev_id);
+    void* workspace = find_chunk(size, dev_id);
+    void* update = find_chunk(size, dev_id);
 
     // Calculate Norm2 of param
     CUDNN_CALL(cudnnReduceTensor(cudnn_map[dev_id], rtd, NULL, 0,
-                                    workspace, size, &one, adesc,
-                                    (const void *)param_data, &zero, cdesc,
-                                    norm2_param));
+        workspace, size, &one, adesc,
+        (const void*)param_data, &zero, cdesc,
+        norm2_param));
 
     // Calculate update
     if (stream_handle)
-        calc_lamb_update<<<blocks, threads, 0,
-                      *(cudaStream_t *)stream_handle->handle>>>(
-            (float *)update, grad_data, m_data, v_data, beta1, beta2, beta1t,
+        calc_lamb_update << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
+            (float*)update, grad_data, m_data, v_data, beta1, beta2, beta1t,
             beta2t, eps, temp_strideA);
     else
-        calc_lamb_update<<<blocks, threads>>>((float *)update, grad_data, m_data, v_data,
-                                         beta1, beta2, beta1t, beta2t, eps,
-                                         temp_strideA);
+        calc_lamb_update << <blocks, threads >> > ((float*)update, grad_data, m_data, v_data,
+            beta1, beta2, beta1t, beta2t, eps,
+            temp_strideA);
 
     // Calculate Norm2 of update
     CUDNN_CALL(cudnnReduceTensor(cudnn_map[dev_id], rtd, NULL, 0,
-                                workspace, size, &one, adesc,
-                                (const void *)update, &zero, cdesc,
-                                norm2_update));
+        workspace, size, &one, adesc,
+        (const void*)update, &zero, cdesc,
+        norm2_update));
 
     // Update step
     if (stream_handle)
-        lamb_update_step<<<blocks, threads, 0,
-                      *(cudaStream_t *)stream_handle->handle>>>(
-                (float *)param_data, (const float *)update, lr, weight_decay, 
-                (float *)norm2_param, (float *)norm2_update, size);
+        lamb_update_step << <blocks, threads, 0,
+        *(cudaStream_t*)stream_handle->handle >> > (
+            (float*)param_data, (const float*)update, lr, weight_decay,
+            (float*)norm2_param, (float*)norm2_update, size);
     else
-        lamb_update_step<<<blocks, threads>>>((float *)param_data, (const float *)update, lr, weight_decay, 
-                        (float *)norm2_param, (float *)norm2_update, size);
+        lamb_update_step << <blocks, threads >> > ((float*)param_data, (const float*)update, lr, weight_decay,
+            (float*)norm2_param, (float*)norm2_update, size);
 
     del_chunk(norm2_param, dev_id);
     del_chunk(norm2_update, dev_id);

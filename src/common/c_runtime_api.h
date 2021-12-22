@@ -236,7 +236,7 @@ HETUSYS_EXTERN_C {
 
     int DLGpuGelu(const DLArrayHandle input, DLArrayHandle output,
                   DLStreamHandle stream_handle);
-      /*!
+    /*!
      * \brief Compute gelu, and store to output.
      * \param input The input array.
      * \param in_grad The input gradients value.
@@ -247,7 +247,7 @@ HETUSYS_EXTERN_C {
     int DLGpuGeluGradient(const DLArrayHandle input,
                           const DLArrayHandle in_grad, DLArrayHandle output,
                           DLStreamHandle stream_handle);
-  /*!
+    /*!
      * \brief Compute gelu gradient, and store to output.
      * \param input The input array.
      * \param in_grad The input gradients value.
@@ -331,27 +331,23 @@ HETUSYS_EXTERN_C {
         DLStreamHandle stream_handle);
 
     int DLGpuCrossEntropy(const DLArrayHandle input_y,
+                          const DLArrayHandle label, DLArrayHandle output,
+                          DLStreamHandle stream_handle);
+
+    int DLGpuCrossEntropyGradient(
+        const DLArrayHandle grad, const DLArrayHandle input_y,
         const DLArrayHandle label, DLArrayHandle output,
         DLStreamHandle stream_handle);
 
-    int DLGpuCrossEntropyGradient(const DLArrayHandle grad,
-                                      const DLArrayHandle input_y,
-                                      const DLArrayHandle label,
-                                      DLArrayHandle output,
-                                      DLStreamHandle stream_handle);
-
     int DLGpuCrossEntropySparse(const DLArrayHandle input_y,
-                              const DLArrayHandle label, 
-                              const int ignored_index,
-                              DLArrayHandle output,
-                              DLStreamHandle stream_handle);
-    
-    int DLGpuCrossEntropySparseGradient(const DLArrayHandle grad,
-                                      const DLArrayHandle input_y,
-                                      const DLArrayHandle label,
-                                      const int ignored_index,
-                                      DLArrayHandle output,
-                                      DLStreamHandle stream_handle);
+                                const DLArrayHandle label,
+                                const int ignored_index, DLArrayHandle output,
+                                DLStreamHandle stream_handle);
+
+    int DLGpuCrossEntropySparseGradient(
+        const DLArrayHandle grad, const DLArrayHandle input_y,
+        const DLArrayHandle label, const int ignored_index,
+        DLArrayHandle output, DLStreamHandle stream_handle);
 
     int DLGpuConv2d(const DLArrayHandle input_x, const DLArrayHandle input_f,
                     DLArrayHandle output, DLArrayHandle workspace_arr,
@@ -574,15 +570,14 @@ HETUSYS_EXTERN_C {
                      DLArrayHandle output, unsigned long long *pseed,
                      DLStreamHandle stream_handle);
 
-    
-    int DLGpuDropoutGradient_recompute(const DLArrayHandle grad, const float dropout,
-                             DLArrayHandle output, unsigned long long seed,
-                             DLStreamHandle stream_handle);
-    
+    int DLGpuDropoutGradient_recompute(
+        const DLArrayHandle grad, const float dropout, DLArrayHandle output,
+        unsigned long long seed, DLStreamHandle stream_handle);
 
-    int DLGpuDropoutGradient(const DLArrayHandle grad, const DLArrayHandle fw_output,
-                         const float dropout, DLArrayHandle output,
-                         DLStreamHandle stream_handle);
+    int DLGpuDropoutGradient(const DLArrayHandle grad,
+                             const DLArrayHandle fw_output, const float dropout,
+                             DLArrayHandle output,
+                             DLStreamHandle stream_handle);
 
     int DLGpuDropout2d(const DLArrayHandle input, const float dropout,
                        DLArrayHandle output, unsigned long long *pseed,
@@ -613,16 +608,14 @@ HETUSYS_EXTERN_C {
 
     int DLGpuLinear(const DLArrayHandle matA, bool transposeA,
                     const DLArrayHandle matB, bool transposeB,
-                    const DLArrayHandle bias,
-                    DLArrayHandle matC,
+                    const DLArrayHandle bias, DLArrayHandle matC,
                     DLStreamHandle stream_handle);
 
-    int Cudnn_Conv2dAddBias(const DLArrayHandle input_x,
-                            const DLArrayHandle input_f,
-                            const DLArrayHandle bias, DLArrayHandle output,
-                            const int padding_h, const int padding_w,
-                            const int stride_h, const int stride_w,
-                            DLStreamHandle stream_handle);
+    int Cudnn_Conv2dAddBias(
+        const DLArrayHandle input_x, const DLArrayHandle input_f,
+        const DLArrayHandle bias, DLArrayHandle output, const int padding_h,
+        const int padding_w, const int stride_h, const int stride_w,
+        DLStreamHandle stream_handle);
 
     // Initializers
     int DLGpuNormalInit(DLArrayHandle arr, const float mean, const float stddev,
@@ -636,10 +629,9 @@ HETUSYS_EXTERN_C {
     // Optimizer Ops
     int AddL2Regularization(const DLArrayHandle param, DLArrayHandle grad,
                             float l2reg, DLStreamHandle stream_handle);
-    int AddL2RegularizationSparse(const DLArrayHandle param, 
-                                const DLArrayHandle grad_indices,
-                                DLArrayHandle grad_values, float l2reg, 
-                                DLStreamHandle stream_handle);
+    int AddL2RegularizationSparse(
+        const DLArrayHandle param, const DLArrayHandle grad_indices,
+        DLArrayHandle grad_values, float l2reg, DLStreamHandle stream_handle);
     int SGDOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
                            float lr, DLStreamHandle stream_handle);
     int SGDOptimizerSparseUpdate(DLArrayHandle param,
@@ -649,52 +641,55 @@ HETUSYS_EXTERN_C {
 
     int MomentumOptimizerUpdate(
         DLArrayHandle param, DLArrayHandle grad, DLArrayHandle velocity,
-        float lr, float momentum, bool nesterov, bool only_process_grad, DLStreamHandle stream_handle);
+        float lr, float momentum, bool nesterov, bool only_process_grad,
+        DLStreamHandle stream_handle);
     int MomentumOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
         const DLArrayHandle grad_values, DLArrayHandle velocity, float lr,
         float momentum, bool nesterov, DLStreamHandle stream_handle);
 
-    int AdaGradOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
-                               DLArrayHandle acc, float lr, float eps, bool only_process_grad,
-                               DLStreamHandle stream_handle);
+    int AdaGradOptimizerUpdate(
+        DLArrayHandle param, DLArrayHandle grad, DLArrayHandle acc, float lr,
+        float eps, bool only_process_grad, DLStreamHandle stream_handle);
     int AdaGradOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
         const DLArrayHandle grad_values, DLArrayHandle acc, float lr, float eps,
         DLStreamHandle stream_handle);
 
-    int AdamOptimizerUpdate(
-        DLArrayHandle param, DLArrayHandle grad, DLArrayHandle expavg,
-        DLArrayHandle expavgsq, float lr, float beta1, float beta2,
-        float beta1t, float beta2t, float eps, bool only_process_grad, DLStreamHandle stream_handle);
+    int AdamOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
+                            DLArrayHandle expavg, DLArrayHandle expavgsq,
+                            float lr, float beta1, float beta2, float beta1t,
+                            float beta2t, float eps, bool only_process_grad,
+                            DLStreamHandle stream_handle);
     int AdamOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
         const DLArrayHandle grad_values, DLArrayHandle expavg,
         DLArrayHandle expavgsq, float lr, float beta1, float beta2,
-        float beta1t, float beta2t, float eps, DLStreamHandle stream_handle);
+        float beta1t, float beta2t, float eps, bool only_process_grad,
+        DLStreamHandle stream_handle);
 
     int AdamWOptimizerUpdate(
-        DLArrayHandle param, const DLArrayHandle grad, DLArrayHandle expavg,
+        DLArrayHandle param, DLArrayHandle grad, DLArrayHandle expavg,
         DLArrayHandle expavgsq, float lr, float beta1, float beta2,
-        float beta1t, float beta2t, float eps, float weight_decay, 
-        DLStreamHandle stream_handle);
+        float beta1t, float beta2t, float eps, float weight_decay,
+        bool only_process_grad, DLStreamHandle stream_handle);
     int AdamWOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
-        const DLArrayHandle grad_values, DLArrayHandle expavg,
-        DLArrayHandle expavgsq, float lr, float beta1, float beta2,
-        float beta1t, float beta2t, float eps, float weight_decay, 
+        DLArrayHandle grad_values, DLArrayHandle expavg, DLArrayHandle expavgsq,
+        float lr, float beta1, float beta2, float beta1t, float beta2t,
+        float eps, float weight_decay, bool only_process_grad,
         DLStreamHandle stream_handle);
 
-    int LambOptimizerUpdate(
-        DLArrayHandle param, const DLArrayHandle grad, DLArrayHandle expavg,
-        DLArrayHandle expavgsq, float lr, float beta1, float beta2,
-        float beta1t, float beta2t, float eps, float weight_decay, 
-        DLStreamHandle stream_handle);
+    int LambOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
+                            DLArrayHandle expavg, DLArrayHandle expavgsq,
+                            float lr, float beta1, float beta2, float beta1t,
+                            float beta2t, float eps, float weight_decay,
+                            DLStreamHandle stream_handle);
     int LambOptimizerSparseUpdate(
         DLArrayHandle param, const DLArrayHandle grad_indices,
         const DLArrayHandle grad_values, DLArrayHandle expavg,
         DLArrayHandle expavgsq, float lr, float beta1, float beta2,
-        float beta1t, float beta2t, float eps, float weight_decay, 
+        float beta1t, float beta2t, float eps, float weight_decay,
         DLStreamHandle stream_handle);
 
     int DeduplicateIndexedSlices(

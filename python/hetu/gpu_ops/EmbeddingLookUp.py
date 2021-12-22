@@ -78,11 +78,11 @@ class EmbeddingLookUp(Op):
         local_comm_mode = config.node_strategy.get(self, config.comm_mode)
         assert local_comm_mode == config.node_strategy.get(self.inputs[0], config.comm_mode), \
             'Embedding lookup communication mode invalid. Should conform with embedding parameter.'
-        if local_comm_mode in ('PS', 'Hybrid'):
-            cpu_ctx = ndarray.cpu(0)
-            self.ctx = cpu_ctx
-            for n in self.inputs:
-                n.ctx = cpu_ctx
+        # if local_comm_mode in ('PS', 'Hybrid'):
+        #     cpu_ctx = ndarray.cpu(0)
+        #     self.ctx = cpu_ctx
+        #     for n in self.inputs:
+        #         n.ctx = cpu_ctx
 
 
 class EmbeddingLookUp_Gradient(Op):
@@ -104,8 +104,9 @@ class EmbeddingLookUp_Gradient(Op):
 
     def backward_hook(self, config):
         # insert data transfer op if needed
-        if config.comm_mode == 'PS' or config.comm_mode == "Hybrid":
-            self.ctx = ndarray.cpu(0)
+        # if config.comm_mode == 'PS' or config.comm_mode == "Hybrid":
+        #     self.ctx = ndarray.cpu(0)
+        return
 
 
 def embedding_lookup_op(embedding, index, ctx=None):

@@ -1,5 +1,8 @@
 import hetu as ht
 import numpy as np
+from hetu.context import DeviceGroup
+
+from hetu.gpu_ops import Relu
 from .bookcorpus import BookCorpusDataLoader
 
 '''
@@ -109,7 +112,7 @@ class BertEncoder(object):
         self.config = config
         self.output_hidden_states = config.output_hidden_states
 
-    def __call__(self, hidden_states, attention_mask=None):
+    def __call__(self, hidden_states, device_list):
         '''
         inputs:
             hidden_states: [batch_size, seq_len, hidden_size]
@@ -118,9 +121,19 @@ class BertEncoder(object):
             hidden_states: [batch_size, seq_len, hidden_size]
             all_hidden_states: optional, num_hidden_layers * [batch_size, seq_len, hidden_size]
         '''
-
-        for _ in range(self.config.num_hidden_layers):
-            hidden_states = BertLayer(self.config)(hidden_states, attention_mask)
+        assert len(device_list) == self.config.num_hidden_layers
+        attention_mask = None
+        for ctx in device_list:
+            with ht.context(ctx):
+                change_device = DeviceGroup(ctx) != hidden_states.raw_ctx
+                if change_device:
+                    hidden_states = hidden_states + 0 # sum gradient
+                if attention_mask is None or change_device:
+                    attention_mask = BookCorpusDataLoader(self.config.batch_size, 'attention_mask')
+                    attention_mask = ht.array_reshape_op(attention_mask,
+                        [self.config.batch_size, 1, 1, self.config.max_position_embeddings])
+                    attention_mask = (attention_mask+(-1.0)) * 10000.0
+                hidden_states = BertLayer(self.config)(hidden_states, attention_mask)
         return hidden_states  # last-layer hidden state
 
 class BertLayer(object):
@@ -349,7 +362,7 @@ class BertPredictionHeadTransform(object):
         return hidden_states
 
 class BertLMPredictionHead(object):
-    def __init__(self, config, bert_model_embedding_weights):
+    def __init__(self, config):
         '''
         bert_model_embedding_weights: [vocab_size, hidden_size]
         '''
@@ -358,7 +371,6 @@ class BertLMPredictionHead(object):
         linear_input_shape = [config.batch_size, config.max_position_embeddings, config.hidden_size]
         self.decoder = Linear(config.hidden_size, config.vocab_size, bias_initializer=ht.init.zeros,input_shape=linear_input_shape)
         #self.decoder.weights = ht.transpose_op(bert_model_embedding_weights)
-        self.decoder.weights = bert_model_embedding_weights
 
     def __call__(self, hidden_states):
         '''
@@ -403,8 +415,8 @@ class BertOnlyNSPHead(object):
 
 
 class BertPreTrainingHeads(object):
-    def __init__(self, config, bert_model_embedding_weights):
-        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
+    def __init__(self, config):
+        self.predictions = BertLMPredictionHead(config)
         self.seq_relationship = Linear(config.hidden_size, 2)
 
     def __call__(self, sequence_output, pooled_output):
@@ -474,14 +486,12 @@ class BertModel(object):
         self.batch_size=config.batch_size
         self.seq_len=config.max_position_embeddings
 
-    def __call__(self, input_ids, token_type_ids, attention_mask):
-        extended_attention_mask = ht.array_reshape_op(attention_mask, [self.batch_size, 1, 1, self.seq_len])
-        extended_attention_mask = (extended_attention_mask+(-1.0)) * 10000.0
-
-        self.embeddings = BertEmbeddings(self.config)
-        embedding_output = self.embeddings(input_ids, token_type_ids)
-        sequence_output = BertEncoder(self.config)(embedding_output, extended_attention_mask)
-        pooled_output = BertPooler(self.config)(sequence_output)
+    def __call__(self, input_ids, token_type_ids, device_list):
+        with ht.context(device_list[0]):
+            embedding_output = BertEmbeddings(self.config)(input_ids, token_type_ids)
+        sequence_output = BertEncoder(self.config)(embedding_output, device_list)
+        with ht.context(device_list[-1]):
+            pooled_output = BertPooler(self.config)(sequence_output)
 
         return sequence_output, pooled_output
 
@@ -547,21 +557,18 @@ class BertForPreTraining(object):
         self.batch_size = config.batch_size
         self.vocab_size=config.vocab_size
 
-    def __call__(self):
-        input_ids = BookCorpusDataLoader(self.batch_size, 'input_ids')
-        token_type_ids = BookCorpusDataLoader(self.batch_size, 'token_type_ids')
-        masked_lm_labels = BookCorpusDataLoader(self.batch_size, 'masked_lm_labels')
-        next_sentence_label = BookCorpusDataLoader(self.batch_size, 'next_sentence_label')
-        attention_mask = BookCorpusDataLoader(self.batch_size, 'attention_mask')
-        loss_position_sum = BookCorpusDataLoader(self.batch_size, 'masked_lm_labels',
-            transform=lambda x : (x!=-1).sum().reshape(1))
-        self.bert = self.bert = BertModel(self.config)
-        sequence_output, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
-        prediction_scores, seq_relationship_score = BertPreTrainingHeads(
-            self.config, self.bert.embeddings.word_embeddings.weight)(sequence_output, pooled_output)
-
-        return_op = [prediction_scores, seq_relationship_score]
-        if masked_lm_labels is not None and next_sentence_label is not None:
+    def __call__(self, device_list):
+        with ht.context(device_list[0]):
+            input_ids = BookCorpusDataLoader(self.batch_size, 'input_ids')
+            token_type_ids = BookCorpusDataLoader(self.batch_size, 'token_type_ids')
+        sequence_output, pooled_output = BertModel(self.config)(input_ids, token_type_ids, device_list)
+        with ht.context(device_list[-1]):
+            masked_lm_labels = BookCorpusDataLoader(self.batch_size, 'masked_lm_labels')
+            next_sentence_label = BookCorpusDataLoader(self.batch_size, 'next_sentence_label')
+            loss_position_sum = BookCorpusDataLoader(self.batch_size, 'masked_lm_labels',
+                transform=lambda x : (x!=-1).sum().reshape(1))
+            prediction_scores, seq_relationship_score = BertPreTrainingHeads(self.config)(
+                sequence_output, pooled_output)
             '''
             masked_lm_labels: [batch_size, seq_len]
             prediction_scores: [batch_size, seq_len, vocab_size]
@@ -579,8 +586,7 @@ class BertForPreTraining(object):
             masked_lm_loss_mean = ht.div_op(ht.reduce_sum_op(masked_lm_loss, [0,1]), loss_position_sum)
             next_sentence_loss_mean = ht.reduce_mean_op(next_sentence_loss, [0])
             loss = masked_lm_loss_mean + next_sentence_loss_mean
-            return_op += [masked_lm_loss_mean, next_sentence_loss_mean, loss]
-        return return_op
+        return [prediction_scores, seq_relationship_score, masked_lm_loss_mean, next_sentence_loss_mean, loss]
 
 
 class BertForMaskedLM(object):

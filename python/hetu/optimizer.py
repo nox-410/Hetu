@@ -107,9 +107,6 @@ class Optimizer(object):
         weight = self.tensors[i]
         if ndarray.is_gpu_ctx(weight.ctx):
             gpu_op.add_l2_regularization(weight, grad, self.l2reg, stream_handle)
-        elif isinstance(grad, ndarray.IndexedSlices):
-            # TODO : add l2reg for sparse parameters
-            pass
         elif DNNL_LIB['cpu_SGDOptimizerUpdate']:
             cpu_links.add_l2_regularization(weight, grad, self.l2reg)
         else:
@@ -120,18 +117,18 @@ class Optimizer(object):
         weight = self.tensors[i]
         if ndarray.is_gpu_ctx(weight.ctx):
             if isinstance(grad, ndarray.IndexedSlices):
-                gpu_op.sgd_update( weight, grad, -1, stream_handle)
+                gpu_op.sgd_update( weight, grad, 1, stream_handle)
             else:
                 gpu_op.matrix_elementwise_add(grad, weight, weight, stream_handle)
         elif isinstance(grad, ndarray.IndexedSlices):
             if DNNL_LIB['cpu_SGDOptimizerSparseUpdate']:
-                cpu_links.sgd_update_sparse(weight, grad.indices, grad.values, -1)
+                cpu_links.sgd_update_sparse(weight, grad.indices, grad.values, 1)
             else:
                 grad.cpu_deduplicate()
                 np_tensor = weight.asnumpy()
                 np_tensor[grad.indices.asnumpy().astype(np.int)] += grad.values.asnumpy()
                 weight[:] = np_tensor
-                grads[i].free_deduplicate()
+                grad.free_deduplicate()
         elif DNNL_LIB['DnnlMatrixElementwiseAdd']:
             cpu_links.matrix_elementwise_add(grad, weight, weight)
         else:
@@ -459,7 +456,7 @@ class AdamOptimizer(Optimizer):
         self.count += 1
         weight = self.tensors[i]
         self.apply_l2_reg(node, grad, stream_handle)
-        if ndarray.is_gpu_ctx(weight.ctx) and isinstance(grad, ndarray.NDArray):
+        if ndarray.is_gpu_ctx(weight.ctx) and isinstance(grad, (ndarray.NDArray, ndarray.IndexedSlices)):
             gpu_op.adam_update(
                 weight, grad, self.m[i], self.v[i],
                 self.learning_rate, self.beta1, self.beta2,
@@ -519,6 +516,7 @@ class AdamWOptimizer(Optimizer):
         self.epsilon = epsilon
         self.weight_decay = weight_decay
         self.name = "AdamW"
+        self.count = 0
 
     def get_config(self):
         return (ctypes.c_int(5), (ctypes.c_float * 5)(self.learning_rate, self.beta1, self.beta2, self.epsilon, self.weight_decay), ctypes.c_int(5))
@@ -532,6 +530,19 @@ class AdamWOptimizer(Optimizer):
                 np.zeros(t.shape), t.ctx))
             self.v.append(None if t is None else ndarray.array(
                 np.zeros(t.shape), t.ctx))
+
+    def process_gradient(self, node, grad, stream_handle=None):
+        i = self.params.index(node)
+        if self.count % len(self.params) == 0:
+            self.beta1_t *= self.beta1
+            self.beta2_t *= self.beta2
+        self.count += 1
+        weight = self.tensors[i]
+        if ndarray.is_gpu_ctx(weight.ctx) and isinstance(grad, (ndarray.NDArray, ndarray.IndexedSlices)):
+            gpu_op.adamw_update(weight, grad, self.m[i], self.v[i], self.learning_rate, self.beta1,
+                self.beta2, self.beta1_t, self.beta2_t, self.epsilon, self.weight_decay, True, stream_handle)
+        else:
+            raise NotImplementedError
 
     def update(self, grads, stream_handle=None):
         assert self.initiated is True
@@ -549,7 +560,7 @@ class AdamWOptimizer(Optimizer):
                 assert isinstance(self.m[i], ndarray.NDArray)
                 assert isinstance(self.v[i], ndarray.NDArray)
                 gpu_op.adamw_update(self.tensors[i], grads[i], self.m[i], self.v[i], self.learning_rate, self.beta1,
-                                   self.beta2, self.beta1_t, self.beta2_t, self.epsilon, self.weight_decay, stream_handle)
+                                   self.beta2, self.beta1_t, self.beta2_t, self.epsilon, self.weight_decay, False, stream_handle)
             else:
                 if isinstance(grads[i], ndarray.IndexedSlices):
                     raise NotImplementedError

@@ -60,15 +60,14 @@ if __name__ == "__main__":
                     # hidden_dropout_prob=0.0,
                     batch_size=args.batch_size)
 
-    with ht.context(ht.ndarray.gpu(1)):
-        model = BertForPreTraining(config=config)
-        _,_,masked_lm_loss_mean, next_sentence_loss_mean, loss = model()
+    model = BertForPreTraining(config=config)
+    _,_,masked_lm_loss_mean, next_sentence_loss_mean, loss = model(device_list)
 
-    opt = ht.optim.AdamOptimizer(learning_rate=args.learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-8, l2reg = 0.01)
-    with ht.context(ht.ndarray.gpu(1)):
+    opt = ht.optim.AdamWOptimizer(learning_rate=args.learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
+    with ht.context(device_list[-1]):
         train_op = opt.minimize(loss)
         executor = ht.Executor({"train" : [loss, masked_lm_loss_mean, next_sentence_loss_mean, train_op]},
-            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, dynamic_memory=True)
+            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, dynamic_memory=True, use_sparse_pull=False)
 
     if executor.config.pipeline_dp_rank == 0:
         writer = get_tensorboard_writer(args.name)
@@ -94,22 +93,23 @@ if __name__ == "__main__":
         if res[0]:
             time_used = time.time() - start
             loss_value = []
-            accuracy = []
+            lm_loss = []
+            ns_loss = []
             for i, iter_result in enumerate(res):
                 loss_value.append(iter_result[0][0])
-                print(iter_result[0][0])
+                lm_loss.append(iter_result[1][0])
+                ns_loss.append(iter_result[2][0])
                 # correct_prediction = np.equal(np.argmax(iter_result[1], 1), np.argmax(iter_result[2], 1)).mean()
                 # accuracy.append(correct_prediction)
-            # loss_value = reduce_result([np.mean(loss_value)])
-            # if writer:
-            #     writer.add_scalar('Train/loss', loss_value, iteration)
-            #     writer.add_scalar('Train/acc', accuracy, iteration)
-            # if args.preduce:
-            #     preduce_mean = executor.subexecutor["train"].preduce.mean
-            #     print(preduce_mean)
-            #     executor.subexecutor["train"].preduce.reset_mean()
-            # if executor.config.pipeline_dp_rank == 0:
-            #     print(iteration, "TRAIN loss {:.4f}  lr {:.2e}, time {:.4f}".format(
-            #         loss_value, opt.learning_rate, time_used))
+            loss_value, lm_loss, ns_loss = reduce_result([np.mean(loss_value), np.mean(lm_loss), np.mean(ns_loss)])
+            if writer:
+                writer.add_scalar('Train/loss', loss_value, iteration)
+            if args.preduce:
+                preduce_mean = executor.subexecutor["train"].preduce.mean
+                print(preduce_mean)
+                executor.subexecutor["train"].preduce.reset_mean()
+            if executor.config.pipeline_dp_rank == 0:
+                print(iteration, "TRAIN loss {:.4f}  lm {:.4e} ns {:.4e} lr {:.4e}, time {:.4f}".format(
+                    loss_value, lm_loss, ns_loss, opt.learning_rate, time_used))
 
     ht.worker_finish()

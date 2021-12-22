@@ -22,9 +22,10 @@ from ..optimizer import OptimizerOp
 from .AllReduceCommunicate import AllReduceCommunicateOp
 from .EmbeddingLookUp import EmbeddingLookUp, EmbeddingLookUp_Gradient
 from .DataTransfer import DataH2DOp, DataD2HOp, DataD2HSparseOp
-from ..gpu_links import matrix_elementwise_add, matrix_elementwise_multiply_by_const
+from ..gpu_links import matrix_elementwise_add, matrix_elementwise_multiply_by_const, indexedslice_oneside_add, array_set
 from .executor import find_topo_sort, get_worker_communicate
 from ..preduce import PartialReduce
+from .._base import _LIB
 
 import time
 import random
@@ -214,7 +215,16 @@ class SubExecutor4Pipedream(object):
         ----------
         batch_id: current batch
         """
-
+        persistent_node = set(self.eval_node_list)
+        for node in self.node_to_shape_map:
+            # For operation in another stream, avoid reusing it
+            if isinstance(node, DataH2DOp):
+                persistent_node.add(node)
+            if isinstance(node, AllReduceCommunicateOp):
+                persistent_node.add(node.inputs[0])
+                persistent_node.add(node)
+        reuse_plan = compute_memory_reuse_plan(
+            self.computing_nodes, self.node_to_shape_map, persistent_node) if self.config.dynamic_memory else {}
         for node, shape in self.node_to_shape_map.items():
             mp = self.batch_to_tensor_maps[batch_id]
 
@@ -237,14 +247,24 @@ class SubExecutor4Pipedream(object):
                         raise ValueError
                     mp[node] = copied
             elif not is_dataloader(node):
+                ln_bn_grad_nodes = ["Layer_Normalization_Gradient_of_DataOp", "Layer_Normalization_Gradient_of_ScaleOp",
+                        "Layer_Normalization_Gradient_of_BiasOp", "Batch_Normalization_Gradient_of_DataOp",
+                        "Batch_Normalization_Gradient_of_ScaleOp", "Batch_Normalization_Gradient_of_BiasOp"]
                 # add for OptimizerOp and ParameterServerOp
-                if shape is None:
+                if node in reuse_plan:
+                    mp[node] = mp[reuse_plan[node]]
+                elif shape is None:
                     mp[node] = None
                 elif node in self.backward_topo_order and batch_id > 1:
                     # we can immediately reuse the backward memory
                     mp[node] = self.batch_to_tensor_maps[batch_id-1][node]
                 elif isinstance(node, (EmbeddingLookUp_Gradient, DataD2HSparseOp)):
                     mp[node] = ndarray.IndexedSlices(dense_shape=shape)
+                elif isinstance(node, AllReduceCommunicateOp) and isinstance(node.inputs[0], EmbeddingLookUp_Gradient):
+                    mp[node] = ndarray.IndexedSlices(
+                        dense_shape=shape)
+                elif node.inplace or node.op_type in ln_bn_grad_nodes:
+                    mp[node] = ndarray.NDArray(None)
                 else:
                     mp[node] = ndarray.empty(shape, ctx=node.ctx)
 
@@ -273,10 +293,15 @@ class SubExecutor4Pipedream(object):
         grad_tensor = self.batch_to_tensor_maps[cur_batch_id][ps_node.inputs[0]]
         dst_tensor = self.grad_accum_map[ps_node.parameter]
         self.opt.optimizer.process_gradient(ps_node.parameter, grad_tensor, self.comp_stream)
-        if init_value:
-            dst_tensor._async_copyfrom(grad_tensor, self.comp_stream)
+        if isinstance(grad_tensor, ndarray.IndexedSlices):
+            if init_value:
+                array_set(dst_tensor, 0, self.comp_stream)
+            indexedslice_oneside_add(grad_tensor, dst_tensor, self.comp_stream)
         else:
-            matrix_elementwise_add(grad_tensor, dst_tensor, dst_tensor, stream=self.comp_stream)
+            if init_value:
+                dst_tensor._async_copyfrom(grad_tensor, self.comp_stream)
+            else:
+                matrix_elementwise_add(grad_tensor, dst_tensor, dst_tensor, self.comp_stream)
 
         if not need_sync:
             last_fwd_batch_id = max(self.batch_to_tensor_maps.keys())
@@ -445,7 +470,7 @@ class SubExecutor4Pipedream(object):
                     else:
                         node.compute(input_vals, node_val, self.d2h_stream)
 
-                elif isinstance(node, (DropoutOp, Batch_NormalizationOp, Layer_NormalizationOp)):
+                elif isinstance(node, (DropoutOp, Batch_NormalizationOp)):
                     node.compute(input_vals, node_val,
                                  self.comp_stream, inference=self.inference)
 
@@ -493,3 +518,52 @@ class SubExecutor4Pipedream(object):
         if self.config.pipeline == 'hetpipe':
             self.skip_h2d.clear()
         return results_list
+
+def compute_memory_reuse_plan(computing_nodes, _node_to_shape, persistent_nodes):
+    from collections import defaultdict
+    # compute output deg
+    outdeg = {}
+    memory_pool = defaultdict(list)
+    reuse_map = {}
+    for node in computing_nodes:
+        outdeg[node] = 0
+        for n in node.inputs:
+            if n in outdeg:
+                outdeg[n] += 1
+    # process sparse shape
+    node_to_shape = {}
+    for node in computing_nodes:
+        if isinstance(node, (EmbeddingLookUp_Gradient, DataD2HSparseOp)):
+            node_to_shape[node] = (_node_to_shape[node], 'IndexedSlices')
+        else:
+            node_to_shape[node] = _node_to_shape[node]
+
+    ln_bn_grad_nodes = ["Layer_Normalization_Gradient_of_DataOp", "Layer_Normalization_Gradient_of_ScaleOp",
+                    "Layer_Normalization_Gradient_of_BiasOp", "Batch_Normalization_Gradient_of_DataOp",
+                    "Batch_Normalization_Gradient_of_ScaleOp", "Batch_Normalization_Gradient_of_BiasOp"]
+
+    def release_node(node):
+        if node not in computing_nodes:
+            return
+        outdeg[node] -= 1
+        if outdeg[node] > 0 or node in persistent_nodes or node.op_type in ln_bn_grad_nodes:
+            return
+        assert outdeg[node] == 0
+        if node.inplace:
+            for n in node.inputs:
+                release_node(n)
+        else:
+            memory_pool[node_to_shape[node]].append(node)
+
+    for node in computing_nodes:
+        if node.inplace:
+            continue
+        shape = node_to_shape[node]
+        if shape is None or node in persistent_nodes or node.op_type in ln_bn_grad_nodes:
+            pass
+        elif len(memory_pool[shape]) > 0:
+            reuse_map[node] = memory_pool[shape].pop()
+        for n in node.inputs:
+            release_node(n)
+    return reuse_map
+
