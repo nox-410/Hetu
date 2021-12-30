@@ -16,7 +16,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_CXX_FLAGS "-O3 -Wall")
+set(CMAKE_CXX_FLAGS "-O3 -Wall -D_GLIBCXX_USE_CXX11_ABI=1")
 
 # openmp
 find_package(OpenMP REQUIRED)
@@ -40,11 +40,6 @@ message(STATUS "HETU version: ${HETU_VERSION}")
 # cuda
 if(${HETU_COMPILE_GPU})
     set(CMAKE_CUDA_COMPILER ${CUDAToolkit_ROOT}/bin/nvcc)
-    file(READ ${CUDAToolkit_ROOT}/version.txt RAW_CUDA_VERSION)
-    string(REGEX MATCH "[0-9\.]+" CUDA_VERSION ${RAW_CUDA_VERSION})
-    if(${CUDA_VERSION} VERSION_LESS "10.1")
-        message(FATAL_ERROR "Required CUDA version >= 10.1, while current CUDA version is ${CUDA_VERSION}")
-    endif()
     find_package(CUDAToolkit REQUIRED)
     enable_language(CUDA)
 endif()

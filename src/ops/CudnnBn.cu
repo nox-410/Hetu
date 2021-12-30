@@ -1,23 +1,5 @@
 #include "gpu_runtime.h"
 
-__global__ void init_mean_and_var_kernel(float *mean, float *var, size_t size) {
-    size_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= size)
-        return;
-    mean[id] = 0;
-    var[id] = 0;
-}
-
-__global__ void copy_mean_and_var_kernel(float *mean, float *var,
-                                         float *saved_mean, float *saved_var,
-                                         size_t size) {
-    size_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= size)
-        return;
-    saved_mean[id] = mean[id];
-    saved_var[id] = var[id];
-}
-
 // the shape of bn_scale/bias   1*C*1*1
 int CuDNN_DLGpuBatch_Normalization(
     const DLArrayHandle input_X, const DLArrayHandle bn_scale,
@@ -140,8 +122,8 @@ int CuDNN_DLGpuBatch_Normalization_gradient(
         cudnn_map[dev_id], CUDNN_BATCHNORM_SPATIAL_PERSISTENT, &one, &zero,
         &one, &zero, input_desc, input_data, output_desc, gradient_y_data,
         input_desc, gradient_x_data, bnScaleBiasMeanVar_desc, bn_scale_data,
-        gradient_bn_scale_data, gradient_bn_bias_data, eps, running_mean,
-        running_var));
+        gradient_bn_scale_data, gradient_bn_bias_data, eps, NULL,
+        NULL));
 
     CUDNN_CALL(cudnnDestroyTensorDescriptor(input_desc));
     CUDNN_CALL(cudnnDestroyTensorDescriptor(output_desc));

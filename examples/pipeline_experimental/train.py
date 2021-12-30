@@ -78,7 +78,7 @@ if __name__ == "__main__":
     with ht.context(device_list[-1]):
         train_op = opt.minimize(loss)
         executor = ht.Executor({"train" : [loss, y, y_, train_op], "validate" : [loss, y, y_]},
-            seed=0, pipeline=args.pipeline, use_preduce=args.preduce)
+            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, dynamic_memory=True)
 
     if executor.config.pipeline_dp_rank == 0:
         writer = get_tensorboard_writer(args.name)
@@ -120,6 +120,10 @@ if __name__ == "__main__":
             if executor.config.pipeline_dp_rank == 0:
                 print(iteration, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(
                     loss_value, accuracy, opt.learning_rate, time_used))
+        if args.dataset == "cifar100":
+            opt.set_learning_rate(args.learning_rate * (0.1 ** (iteration // 60)))
+        else:
+            opt.set_learning_rate(args.learning_rate * (0.2 ** (iteration // 30)))
 
         val_loss, val_acc = validate(executor, val_batch_num)
         if val_loss:

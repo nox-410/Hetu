@@ -585,7 +585,7 @@ class SubExecutor(object):
         self.use_sparse_pull = self.config.use_sparse_pull
         self.cstable_policy = self.config.cstable_policy
         self.use_p2p = self.config.p2p_stream is not None
-        self.dynamic_memory = self.config.dynamic_memory
+        self.dynamic_memory = self.config.dynamic_memory and not self.inference
 
         # assisting structures, improve performance
         self.need_feed_nodes = []

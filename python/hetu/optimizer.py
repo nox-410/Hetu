@@ -36,6 +36,9 @@ class Optimizer(object):
     def learning_rate(self):
         return self.lr_sched.get()
 
+    def set_learning_rate(self, lr):
+        self.lr_sched = FixedScheduler(abs(lr))
+
     def step(self):
         # modify learning rate for the next iteration
         self.lr_sched.step()
