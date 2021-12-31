@@ -36,6 +36,7 @@ if __name__ == "__main__":
     parser.add_argument('--model', default='resnet18')
     parser.add_argument('--pipeline', type=str, default="pipedream")
     parser.add_argument('--preduce', action='store_true')
+    parser.add_argument('--adpsgd', action='store_true')
     parser.add_argument('--name', type=str, default="")
     args = parser.parse_args()
 
@@ -78,7 +79,7 @@ if __name__ == "__main__":
     with ht.context(device_list[-1]):
         train_op = opt.minimize(loss)
         executor = ht.Executor({"train" : [loss, y, y_, train_op], "validate" : [loss, y, y_]},
-            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, dynamic_memory=True)
+            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, use_adpsgd=args.adpsgd, dynamic_memory=True)
 
     if executor.config.pipeline_dp_rank == 0:
         writer = get_tensorboard_writer(args.name)
@@ -116,6 +117,8 @@ if __name__ == "__main__":
             if args.preduce:
                 preduce_mean = executor.subexecutor["train"].preduce.mean
                 print(preduce_mean)
+                if writer:
+                    writer.add_scalar('Train/Partner', preduce_mean, iteration)
                 executor.subexecutor["train"].preduce.reset_mean()
             if executor.config.pipeline_dp_rank == 0:
                 print(iteration, "TRAIN loss {:.4f} acc {:.4f} lr {:.2e}, time {:.4f}".format(

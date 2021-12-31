@@ -152,6 +152,7 @@ class HetuConfig(object):
         'pipeline_nrank',
         'pipeline_dp_rank',
         'use_preduce',
+        'use_adpsgd',
         'dynamic_memory',
         'layer_indices',
         'dist_strategy',
@@ -176,6 +177,7 @@ class HetuConfig(object):
         dynamic_memory=False,
         dist_strategy=None,
         use_preduce=False,
+        use_adpsgd=False,
     ):
         '''
         context: default device context
@@ -188,6 +190,7 @@ class HetuConfig(object):
         assert pipeline in (None, "gpipe", "pipedream", "hetpipe")
         self.pipeline = pipeline
         self.use_preduce = use_preduce
+        self.use_adpsgd = use_adpsgd
 
         self.eval_node_list = eval_node_list
         self.train_name = train_name
@@ -624,7 +627,10 @@ class SubExecutor(object):
 
     def _init_preduce(self):
         if self.config.use_preduce and not self.inference:
-            from ..preduce import PartialReduce
+            if self.config.use_adpsgd:
+                from ..preduce import ADPSGD as PartialReduce
+            else:
+                from ..preduce import PartialReduce
             assert self.batch_num is not None
             self.preduce = PartialReduce(
                 reduce_key=self.config.pipeline_nrank-1-self.config.pipeline_rank,

@@ -1,8 +1,11 @@
+import hetu
+from hetu.ndarray import gpu
 from .communicator.mpi_nccl_comm import ncclDataType_t, ncclRedOp_t
 from hetu import get_worker_communicate, wrapped_mpi_nccl_init, new_group_comm
 
 import numpy as np
 import ctypes
+import random
 
 class PartialReduce:
     def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
@@ -72,6 +75,70 @@ class PartialReduce:
     @property
     def mean(self):
         return self._mean_partner
+
+    @property
+    def control_flag(self):
+        return self._control_flag
+
+    def reset_mean(self):
+        self._step = 0
+
+class ADPSGD:
+    def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
+        # reduce_key : in pipeline case, worker on each stage use a unique key
+        self.comm = wrapped_mpi_nccl_init()
+        self._comm_map = {}
+        self.rank = self.comm.rank
+        self.nrank = self.comm.nrank
+        self._control_flag = False
+        self._batch_id = 0
+        self.sync_every = sync_every
+        self.max_worker = max_worker
+        self.rng = random.Random()
+        self.rng.seed(0)
+
+        val = np.zeros(self.nrank)
+        val[self.rank] = reduce_key
+        val = hetu.ndarray.array(val, ctx=gpu(self.comm.device_id))
+        self.comm.dlarrayNcclAllReduce(val, val, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclSum, None)
+        self.comm.stream.sync()
+        val = val.asnumpy()
+        self.same_group_worker = list(np.where(np.abs(val - reduce_key) < 1e-3)[0])
+        assert len(self.same_group_worker) % 2 == 0
+
+    def get_partner(self, min_worker=2, sync=False):
+        # wait_time : the max time to wait, in millisecond
+        # max_worker : if max_worker reachs, get_partner will return immediately
+        #               in pipeline case, max_worker should be set properly, otherwise -1 is ok
+        self._batch_id += 1
+        self._control_flag = (self._batch_id % self.sync_every) == 0
+        partner = self.same_group_worker.copy()
+        self.rng.shuffle(partner)
+        idx = partner.index(self.rank)
+        if idx % 2 == 0:
+            return (partner[idx], partner[idx+1])
+        else:
+            return (partner[idx-1], partner[idx])
+
+
+    def async_wait(self, timestamp):
+        return timestamp
+
+    def preduce(self, array, partner, stream=None):
+        # array : the array to reduce on
+        # partner : the partial reduce group returned by get_partner
+        # stream : the stream to run allreduce on
+        if partner not in self._comm_map.keys():
+            self._create_partial_comm(partner, stream)
+        comm = self._comm_map[partner]
+        comm.dlarrayNcclAllReduce(array, array, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream)
+
+    def _create_partial_comm(self, partner, stream):
+        self._comm_map[partner] = new_group_comm(partner, stream)
+
+    @property
+    def mean(self):
+        return 2
 
     @property
     def control_flag(self):

@@ -24,7 +24,6 @@ from .EmbeddingLookUp import EmbeddingLookUp, EmbeddingLookUp_Gradient
 from .DataTransfer import DataH2DOp, DataD2HOp, DataD2HSparseOp
 from ..gpu_links import matrix_elementwise_add, matrix_elementwise_multiply_by_const, indexedslice_oneside_add, array_set
 from .executor import find_topo_sort, get_worker_communicate
-from ..preduce import PartialReduce
 from .._base import _LIB
 
 import time
@@ -164,7 +163,10 @@ class SubExecutor4Pipedream(object):
 
     def _init_preduce(self, batch_num):
         if self.config.use_preduce and not self.inference:
-            from ..preduce import PartialReduce
+            if self.config.use_adpsgd:
+                from ..preduce import ADPSGD as PartialReduce
+            else:
+                from ..preduce import PartialReduce
             self.preduce = PartialReduce(
                 reduce_key=self.config.pipeline_nrank-1-self.config.pipeline_rank,
                 max_worker=self.config.nrank//self.config.pipeline_nrank,
