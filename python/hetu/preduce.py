@@ -54,7 +54,7 @@ class PartialReduce:
         if len(result) < self._min_worker:
             self._wait_time = min(self._wait_time * 2, 10)
         else:
-            self._wait_time *= 0.9
+            self._wait_time = max(self._wait_time * 0.9, 0.01)
         self._mean_partner = (self._mean_partner * self._step + len(result)) / (self._step + 1)
         self._step += 1
         # print(self._wait_time, result)
