@@ -14,6 +14,9 @@ class Layer_NormalizationOp(Op):
         self.save_mean = None
         self.save_var = None
         self.data_shape = None
+        self.temp_vals = []
+        self.saved_means = []
+        self.saved_vars = []
 
     def compute(self, input_vals, output_val, stream_handle=None):
         local_shape = list(input_vals[0].shape)
@@ -47,24 +50,18 @@ class Layer_NormalizationOp(Op):
                 input_vals[2].reshape(bc_shape)
 
         else:
-            if self.data_shape is None:
-                dev_id = input_vals[0].handle.contents.ctx.device_id
-                self.save_mean = ndarray.empty(
-                    local_shape, ctx=ndarray.gpu(dev_id))
-                self.save_var = ndarray.empty(
-                    local_shape, ctx=ndarray.gpu(dev_id))
-                self.data_shape = local_shape
-            elif self.data_shape != local_shape:
-                del self.save_mean
-                del self.save_var
-                dev_id = input_vals[0].handle.contents.ctx.device_id
-                self.save_mean = ndarray.empty(
-                    local_shape, ctx=ndarray.gpu(dev_id))
-                self.save_var = ndarray.empty(
-                    local_shape, ctx=ndarray.gpu(dev_id))
-                self.data_shape = local_shape
+            dev_id = input_vals[0].handle.contents.ctx.device_id
+            if len(self.temp_vals) == 0:
+                self.temp_vals.append(ndarray.empty(local_shape, ctx=ndarray.gpu(dev_id)))
+                self.temp_vals.append(ndarray.empty(local_shape, ctx=ndarray.gpu(dev_id)))
+
+            save_mean = self.temp_vals.pop(0)
+            save_var = self.temp_vals.pop(0)
+            self.saved_means.append(save_mean)
+            self.saved_vars.append(save_var)
+            self.data_shape = local_shape
             layer_normalization(input_vals[0], input_vals[1], input_vals[2],
-                                self.save_mean, self.save_var, output_val, self.eps, stream_handle)
+                                save_mean, save_var, output_val, self.eps, stream_handle)
 
     def gradient(self, output_grad):
         ln_gradient_node = layer_normalization_gradient_op(
@@ -147,10 +144,13 @@ class Layer_Normalization_GradientOp(Op):
                 self.tmp_gradient_in_arr = ndarray.empty(
                     shape=self.data_shape, ctx=input_vals[0].ctx)
 
+            save_mean = self.forward_node.saved_means.pop(0)
+            save_var = self.forward_node.saved_vars.pop(0)
             layer_normalization_gradient(input_vals[0], input_vals[1], input_vals[2],
                                          self.tmp_gradient_in_arr, self.tmp_gradient_ln_scale,
-                                         self.tmp_gradient_ln_bias, self.forward_node.save_mean,
-                                         self.forward_node.save_var, self.eps, stream_handle)
+                                         self.tmp_gradient_ln_bias, save_mean,
+                                         save_var, self.eps, stream_handle)
+            self.forward_node.temp_vals += [save_mean, save_var]
 
     def gradient(self, output_grad):
         raise NotImplementedError

@@ -19,15 +19,15 @@ executor_ctx = ht.gpu(device_id)
 num_epochs = 1
 lr = 1e-4
 
-config = BertConfig(vocab_size=30522, 
+config = BertConfig(vocab_size=30522,
                     hidden_size=768,
-                    num_hidden_layers=12, 
-                    num_attention_heads=12, 
-                    intermediate_size=3072, 
-                    max_position_embeddings=512, 
+                    num_hidden_layers=12,
+                    num_attention_heads=12,
+                    intermediate_size=3072,
+                    max_position_embeddings=512,
                     # attention_probs_dropout_prob=0.0,
                     # hidden_dropout_prob=0.0,
-                    batch_size=18)
+                    batch_size=2)
 
 model = BertForPreTraining(config=config)
 
@@ -58,7 +58,7 @@ opt = ht.optim.AdamOptimizer(learning_rate=lr, beta1=0.9, beta2=0.999, epsilon=1
 # opt = ht.optim.SGDOptimizer(learning_rate=lr)
 train_op = opt.minimize(loss)
 
-executor = ht.Executor([masked_lm_loss_mean, next_sentence_loss_mean, loss, train_op],ctx=executor_ctx,dynamic_memory=True)
+executor = ht.Executor([masked_lm_loss_mean, next_sentence_loss_mean, loss, train_op],ctx=executor_ctx,dynamic_memory=True,seed=0)
 
 dataloader.make_epoch_data()
 for ep in range(num_epochs):
@@ -74,9 +74,9 @@ for ep in range(num_epochs):
             next_sentence_label: batch_data['next_sentence_label'],
             loss_position_sum: np.array([np.where(batch_data['masked_lm_labels'].reshape(-1)!=-1)[0].shape[0]]),
         }
-        
+
         results = executor.run(feed_dict = feed_dict)
-        
+
         masked_lm_loss_mean_out = results[0].asnumpy()
         next_sentence_loss_mean_out = results[1].asnumpy()
         loss_out = results[2].asnumpy()

@@ -26,7 +26,7 @@ class DataLoader(object):
 
     def load_data(self, dataset='bookcorpus', doc_num=16000, save_gap=200):
         print('Loading preprocessed dataset %s...'%dataset)
-        data_dir = './preprocessed_data/%s/'%dataset
+        data_dir = os.path.expanduser('~/.cache/hetu/datasets/bookcorpus/')
 
         for i in range(0,doc_num,save_gap):
             start, end = i, i+save_gap-1
@@ -37,16 +37,16 @@ class DataLoader(object):
             for data_name in self.data_names:
                 #print(data_dir+data_name+range_name)
                 self.data[data_name].append(np.load(data_dir+data_name+range_name))
-        
+
         for data_name in self.data_names:
             self.data[data_name] = np.concatenate(self.data[data_name],axis=0)
-        
+
         self.data_len = self.data['input_ids'].shape[0]
         print(self.data['input_ids'].shape)
 
         print('Successfully loaded dataset %s!'%dataset)
-            
-    
+
+
     def make_epoch_data(self):
         for i in range(0, self.data_len, self.batch_size):
             start = i
@@ -56,10 +56,10 @@ class DataLoader(object):
             if end-start != self.batch_size:
                 break
             for data_name in self.data_names:
-                self.batch_data[data_name].append(self.data[data_name][start:end]) 
+                self.batch_data[data_name].append(self.data[data_name][start:end])
 
         self.batch_num = len(self.batch_data['input_ids'])
-    
+
     def get_batch(self, idx):
         if idx >= self.batch_num:
             assert False
@@ -67,7 +67,7 @@ class DataLoader(object):
             self.cur_batch_data[data_name] = self.batch_data[data_name][idx]
 
         return self.cur_batch_data.copy()
-    
+
     def align(self, arr, length):
         ori_len = len(arr)
         if length > ori_len:
@@ -114,7 +114,7 @@ class DataLoader4Glue(object):
         self.num_labels = np.max(self.data['label_ids'])+1
         print(self.data['input_ids'].shape)
         print('Successfully loaded GLUE dataset %s for %s!'%(task_name,datatype))
-    
+
     def make_epoch_data(self):
         for i in range(0, self.data_len, self.batch_size):
             start = i
@@ -124,10 +124,10 @@ class DataLoader4Glue(object):
             if end-start != self.batch_size:
                 break
             for data_name in self.data_names:
-                self.batch_data[data_name].append(self.data[data_name][start:end]) 
+                self.batch_data[data_name].append(self.data[data_name][start:end])
 
         self.batch_num = len(self.batch_data['input_ids'])
-    
+
     def get_batch(self, idx):
         if idx >= self.batch_num:
             assert False
