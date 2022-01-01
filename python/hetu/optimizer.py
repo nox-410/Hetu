@@ -122,7 +122,7 @@ class Optimizer(object):
             if isinstance(grad, ndarray.IndexedSlices):
                 gpu_op.sgd_update( weight, grad, 1, stream_handle)
             else:
-                gpu_op.matrix_elementwise_add(grad, weight, weight, stream_handle)
+                gpu_op.matrix_elementwise_add_simple(grad, weight, weight, stream_handle)
         elif isinstance(grad, ndarray.IndexedSlices):
             if DNNL_LIB['cpu_SGDOptimizerSparseUpdate']:
                 cpu_links.sgd_update_sparse(weight, grad.indices, grad.values, 1)

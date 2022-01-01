@@ -22,16 +22,16 @@ from ..optimizer import OptimizerOp
 from .AllReduceCommunicate import AllReduceCommunicateOp
 from .EmbeddingLookUp import EmbeddingLookUp, EmbeddingLookUp_Gradient
 from .DataTransfer import DataH2DOp, DataD2HOp, DataD2HSparseOp
-from ..gpu_links import matrix_elementwise_add, matrix_elementwise_multiply_by_const, indexedslice_oneside_add, array_set
+from ..gpu_links import matrix_elementwise_add_simple, matrix_elementwise_multiply_by_const, indexedslice_oneside_add, array_set
 from .executor import find_topo_sort, get_worker_communicate
 from .._base import _LIB
 
 import time
-import random
+import random, os
 
 def random_wait(chance, wait_time):
     if random.random() < chance:
-        time.sleep(wait_time / 1000)
+        time.sleep(wait_time)
 
 def pipedream_scheduler(rank, nrank):
     """
@@ -303,7 +303,7 @@ class SubExecutor4Pipedream(object):
             if init_value:
                 dst_tensor._async_copyfrom(grad_tensor, self.comp_stream)
             else:
-                matrix_elementwise_add(grad_tensor, dst_tensor, dst_tensor, self.comp_stream)
+                matrix_elementwise_add_simple(grad_tensor, dst_tensor, dst_tensor, self.comp_stream)
 
         if not need_sync:
             last_fwd_batch_id = max(self.batch_to_tensor_maps.keys())
@@ -342,7 +342,8 @@ class SubExecutor4Pipedream(object):
             #         max_worker=self.config.nrank//self.config.pipeline_nrank)
 
             cur_topo = self.backward_topo_order if cur_schedule == 1 else self.forward_topo_order
-
+            if "DEBUG_HETERO" in os.environ:
+                random_wait(0.1, float(os.environ["DEBUG_HETERO"]))
             if cur_schedule == 0:
                 if batch_id > batch_num:
                     """

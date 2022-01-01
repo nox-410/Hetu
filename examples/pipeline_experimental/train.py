@@ -37,8 +37,11 @@ if __name__ == "__main__":
     parser.add_argument('--pipeline', type=str, default="pipedream")
     parser.add_argument('--preduce', action='store_true')
     parser.add_argument('--adpsgd', action='store_true')
+    parser.add_argument('--hetero', default=0.0, type=float)
     parser.add_argument('--name', type=str, default="")
     args = parser.parse_args()
+    if args.hetero > 0:
+        os.environ["DEBUG_HETERO"] = str(args.hetero)
 
     assert args.pipeline in ["pipedream", "hetpipe", "dp"]
     if args.pipeline == "dp":
