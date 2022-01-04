@@ -156,6 +156,8 @@ class SubExecutor4Pipedream(object):
             self.grad_accum_map = {} # map weight node to gradients
             self.h2d_map = {} # map weight to d2h node
             self.skip_h2d = set()
+            self.ps_comm.ssp_init(config.pipeline_rank, config.nrank // config.pipeline_nrank, 10)
+            self.ssp_version = 0
             for node in self.topo_order:
                 if isinstance(node, DataH2DOp) and isinstance(node.inputs[0], PlaceholderOp) and node.inputs[0].trainable:
                     self.h2d_map[node.inputs[0]] = node
@@ -399,6 +401,9 @@ class SubExecutor4Pipedream(object):
                 self.opt.optimizer.update_tensors_version(
                     dict([(weight, self.batch_to_tensor_maps[batch_id][h2d])
                         for (weight, h2d) in self.h2d_map.items()]))
+                if cur_schedule == 1:
+                    self.config.ps_comm.ssp_sync(self.config.pipeline_rank, self.ssp_version)
+                    self.ssp_version += 1
             else:
                 self.opt.optimizer.update_tensors_version(self.batch_to_tensor_maps[batch_id])
             # compute, same logic for backward and forward
