@@ -4,6 +4,7 @@ from hetu.context import DeviceGroup
 
 from hetu.gpu_ops import Relu
 from .bookcorpus import BookCorpusDataLoader
+from .wiki import WikiCorpusDataLoader
 
 '''
 Bert Module Architecture & Input/Output Tensor Size
@@ -129,7 +130,7 @@ class BertEncoder(object):
                 if change_device:
                     hidden_states = hidden_states + 0 # sum gradient
                 if attention_mask is None or change_device:
-                    attention_mask = BookCorpusDataLoader(self.config.batch_size, 'attention_mask')
+                    attention_mask = WikiCorpusDataLoader(self.config.batch_size, 'attention_mask')
                     attention_mask = ht.array_reshape_op(attention_mask,
                         [self.config.batch_size, 1, 1, self.config.max_position_embeddings])
                     attention_mask = (attention_mask+(-1.0)) * 10000.0
@@ -559,13 +560,13 @@ class BertForPreTraining(object):
 
     def __call__(self, device_list):
         with ht.context(device_list[0]):
-            input_ids = BookCorpusDataLoader(self.batch_size, 'input_ids')
-            token_type_ids = BookCorpusDataLoader(self.batch_size, 'token_type_ids')
+            input_ids = WikiCorpusDataLoader(self.batch_size, 'input_ids')
+            token_type_ids = WikiCorpusDataLoader(self.batch_size, 'token_type_ids')
         sequence_output, pooled_output = BertModel(self.config)(input_ids, token_type_ids, device_list)
         with ht.context(device_list[-1]):
-            masked_lm_labels = BookCorpusDataLoader(self.batch_size, 'masked_lm_labels')
-            next_sentence_label = BookCorpusDataLoader(self.batch_size, 'next_sentence_label')
-            loss_position_sum = BookCorpusDataLoader(self.batch_size, 'masked_lm_labels',
+            masked_lm_labels = WikiCorpusDataLoader(self.batch_size, 'masked_lm_labels')
+            next_sentence_label = WikiCorpusDataLoader(self.batch_size, 'next_sentence_label')
+            loss_position_sum = WikiCorpusDataLoader(self.batch_size, 'masked_lm_labels',
                 transform=lambda x : (x!=-1).sum().reshape(1))
             prediction_scores, seq_relationship_score = BertPreTrainingHeads(self.config)(
                 sequence_output, pooled_output)

@@ -54,8 +54,6 @@ class ImageNetDataLoader(Op):
             transforms.ToTensor(),
             transforms.Normalize(IMAGENET_TRAIN_MEAN, IMAGENET_TRAIN_MEAN),
         ])
-        self.train_data = ImageFolder(IMAGENET_TRAIN_ROOT, self.transform)
-        self.test_data = ImageFolder(IMAGENET_VAL_ROOT, self.transform_test)
         self.image = image # image or label
 
     def get_batch_num(self, name):
@@ -90,6 +88,8 @@ class ImageNetDataLoader(Op):
         else:
             rank, nrank = 0, 1
         self._data_split = nrank
+        self.train_data = ImageFolder(IMAGENET_TRAIN_ROOT, self.transform)
+        self.test_data = ImageFolder(IMAGENET_VAL_ROOT, self.transform_test)
         gen = torch.Generator()
         gen.manual_seed(rank)
         self.dl_train = DataLoader(

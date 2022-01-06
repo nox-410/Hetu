@@ -34,8 +34,13 @@ if __name__ == "__main__":
     parser.add_argument('--pipeline', type=str, default="pipedream")
     parser.add_argument('--learning-rate', type=float, default=1e-4)
     parser.add_argument('--preduce', action='store_true')
+    parser.add_argument('--adpsgd', action='store_true')
+    parser.add_argument('--hetero', default=0.0, type=float)
     parser.add_argument('--name', type=str, default="")
     args = parser.parse_args()
+
+    if args.hetero > 0:
+        os.environ["DEBUG_HETERO"] = str(args.hetero)
 
     assert args.pipeline in ["pipedream", "hetpipe", "dp"]
     if args.pipeline == "dp":
@@ -55,19 +60,19 @@ if __name__ == "__main__":
                     num_hidden_layers=12,
                     num_attention_heads=12,
                     intermediate_size=3072,
-                    max_position_embeddings=512,
+                    max_position_embeddings=128,
                     # attention_probs_dropout_prob=0.0,
                     # hidden_dropout_prob=0.0,
                     batch_size=args.batch_size)
 
     model = BertForPreTraining(config=config)
     _,_,masked_lm_loss_mean, next_sentence_loss_mean, loss = model(device_list)
-
-    opt = ht.optim.AdamWOptimizer(learning_rate=args.learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
+    lr_scheduler = get_lr_scheduler(args.learning_rate, decay=1.0, decay_step=1, warmup_step=2000)
+    opt = ht.optim.AdamWOptimizer(learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
     with ht.context(device_list[-1]):
         train_op = opt.minimize(loss)
         executor = ht.Executor({"train" : [loss, masked_lm_loss_mean, next_sentence_loss_mean, train_op]},
-            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, dynamic_memory=True, use_sparse_pull=False)
+            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, use_adpsgd=args.adpsgd, dynamic_memory=True, use_sparse_pull=False)
 
     if executor.config.pipeline_dp_rank == 0:
         writer = get_tensorboard_writer(args.name)
@@ -99,14 +104,14 @@ if __name__ == "__main__":
                 loss_value.append(iter_result[0][0])
                 lm_loss.append(iter_result[1][0])
                 ns_loss.append(iter_result[2][0])
-                # correct_prediction = np.equal(np.argmax(iter_result[1], 1), np.argmax(iter_result[2], 1)).mean()
-                # accuracy.append(correct_prediction)
             loss_value, lm_loss, ns_loss = reduce_result([np.mean(loss_value), np.mean(lm_loss), np.mean(ns_loss)])
             if writer:
                 writer.add_scalar('Train/loss', loss_value, iteration)
             if args.preduce:
                 preduce_mean = executor.subexecutor["train"].preduce.mean
                 print(preduce_mean)
+                if writer:
+                    writer.add_scalar('Train/Partner', preduce_mean, iteration)
                 executor.subexecutor["train"].preduce.reset_mean()
             if executor.config.pipeline_dp_rank == 0:
                 print(iteration, "TRAIN loss {:.4f}  lm {:.4e} ns {:.4e} lr {:.4e}, time {:.4f}".format(

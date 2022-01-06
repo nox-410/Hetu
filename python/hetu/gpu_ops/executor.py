@@ -30,8 +30,9 @@ from operator import add
 from functools import reduce
 import ctypes
 import os
-from time import time
+import time
 import pickle
+import random
 
 
 def path_to_lib(name):
@@ -108,6 +109,10 @@ def scheduler_init():
 
 def scheduler_finish():
     ps_comm.Finalize()
+
+def random_wait(chance, wait_time):
+    if random.random() < chance:
+        time.sleep(wait_time)
 
 
 class HetuConfig(object):
@@ -234,7 +239,7 @@ class HetuConfig(object):
             init_p2p_stream = len(devices) != len(ctx)
 
         # variables initialization
-        self.seed = seed if seed is not None else np.int64(time())
+        self.seed = seed if seed is not None else np.int64(time.time())
         self.np_rand = np.random.RandomState(self.seed)
 
         # get attribute of communication mode
@@ -933,6 +938,9 @@ class SubExecutor(object):
         -------
         A list of values for nodes in eval_node_list. NDArray or np.ndarray.
         """
+        if "DEBUG_HETERO" in os.environ:
+            random_wait(0.1, float(os.environ["DEBUG_HETERO"]))
+            random_wait(0.1, float(os.environ["DEBUG_HETERO"])) # double
         assert len(feed_dict) == len(
             self.need_feed_nodes) or self.use_p2p, 'Feed dict invalid.'
         if eval_node_list != {} and eval_node_list != self.eval_node_list:
