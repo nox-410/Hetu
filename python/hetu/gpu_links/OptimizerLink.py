@@ -31,8 +31,6 @@ def sgd_update(param, grad, lr, stream=None):
         assert isinstance(grad.values, _nd.NDArray)
         _LIB.SGDOptimizerSparseUpdate(param.handle, grad.indices.handle, grad.values.handle, ctypes.c_float(
             lr), stream.handle if stream else None)
-        grad.free_dense()
-
 
 def momentum_update(param, grad, velocity, lr, momentum, nesterov, only_process_grad, stream=None):
     assert isinstance(param, _nd.NDArray)

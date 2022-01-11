@@ -291,21 +291,17 @@ class SubExecutor4Pipedream(object):
             # so we set let placeholder_to_arr_map point to it
             self.config.placeholder_to_arr_map[node] = dst_tensor
 
-    def update_gradient_local(self, ps_node, init_value, need_sync):
+    def update_gradient_local(self, ps_node, need_sync):
         node_id = ps_node.ps_id
         cur_batch_id = min(self.batch_to_tensor_maps.keys())
         grad_tensor = self.batch_to_tensor_maps[cur_batch_id][ps_node.inputs[0]]
         dst_tensor = self.grad_accum_map[ps_node.parameter]
         self.opt.optimizer.process_gradient(ps_node.parameter, grad_tensor, self.comp_stream)
         if isinstance(grad_tensor, ndarray.IndexedSlices):
-            if init_value:
-                array_set(dst_tensor, 0, self.comp_stream)
+            array_set(dst_tensor, 0, self.comp_stream)
             indexedslice_oneside_add(grad_tensor, dst_tensor, self.comp_stream)
         else:
-            if init_value:
-                dst_tensor._async_copyfrom(grad_tensor, self.comp_stream)
-            else:
-                matrix_elementwise_add_simple(grad_tensor, dst_tensor, dst_tensor, self.comp_stream)
+            dst_tensor._async_copyfrom(grad_tensor, self.comp_stream)
 
         if not need_sync:
             last_fwd_batch_id = max(self.batch_to_tensor_maps.keys())
@@ -316,10 +312,8 @@ class SubExecutor4Pipedream(object):
                 current_weight._async_copyfrom(latest_weight, self.comp_stream)
             self.opt.optimizer.apply_gradient(ps_node.parameter, grad_tensor, self.comp_stream)
             self.skip_h2d.add(h2d_node)
-        else:
-            # modify gradient to mean before push to ps
-            matrix_elementwise_multiply_by_const(dst_tensor,
-                self.config.pipeline_nrank / self.config.nrank, dst_tensor, self.comp_stream)
+        matrix_elementwise_multiply_by_const(dst_tensor,
+            self.config.pipeline_nrank / self.config.nrank, dst_tensor, self.comp_stream)
 
     def run(self, eval_node_list, feed_dict_list, convert_to_numpy_ret_vals, batch_num):
         if not self.preduce:
@@ -468,13 +462,14 @@ class SubExecutor4Pipedream(object):
 
                 elif isinstance(node, (ParameterServerCommunicateOp, ParameterServerSparsePullOp)):
                     if self.config.pipeline == "hetpipe":
-                        need_sync = (batch_id % self.config.pipeline_nrank == 0) or \
-                            (batch_id == batch_num)
-                        self.update_gradient_local(node, init_value=(batch_id % self.config.pipeline_nrank)==1, need_sync=need_sync)
+                        need_sync = (batch_id % 10 == 0) or (batch_id == batch_num)
+                        self.update_gradient_local(node, need_sync=need_sync)
+                        input_vals = [self.grad_accum_map[node.parameter]]
+                        self.comp_stream.sync()
                         if need_sync:
-                            input_vals = [self.grad_accum_map[node.parameter]]
-                            self.comp_stream.sync()
                             node.compute(input_vals, node_val, self.d2h_stream)
+                        else:
+                            node._compute_no_prefetch(input_vals, node_val, self.d2h_stream)
                     else:
                         node.compute(input_vals, node_val, self.d2h_stream)
 

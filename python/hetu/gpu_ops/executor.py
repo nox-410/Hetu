@@ -1114,7 +1114,11 @@ class SubExecutor(object):
                 if isinstance(node, (ParameterServerCommunicateOp, ParameterServerSparsePullOp)):
                     # Here we use d2h stream in ps op, since the stream is used for d2h data transfer.
                     # Please take care at this part.
-                    self.opt.optimizer.process_gradient(node.parameter, input_vals[0], self.d2h_stream)
+                    self.opt.optimizer.process_gradient(node.parameter, input_vals[0], self.comp_stream)
+                    if isinstance(input_vals[0], ndarray.IndexedSlices):
+                        input_vals[0].to_dense(self.comp_stream)
+                        input_vals = [input_vals[0].values]
+                    self.comp_stream.sync()
                     node.compute(input_vals, node_val, self.d2h_stream)
 
                 elif isinstance(node, AllReduceCommunicateOp):
