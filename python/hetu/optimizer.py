@@ -10,6 +10,7 @@ from .gpu_ops.EmbeddingLookUp import EmbeddingLookUp_Gradient
 from .gpu_ops.ParameterServerCommunicate import ParameterServerCommunicateOp
 from .gpu_ops.Variable import PlaceholderOp
 from . import cpu_links
+from .communicator.mpi_nccl_comm import ncclDataType_t
 from ._base import DNNL_LIB
 
 class Optimizer(object):
@@ -120,12 +121,12 @@ class Optimizer(object):
         weight = self.tensors[i]
         if ndarray.is_gpu_ctx(weight.ctx):
             if isinstance(grad, ndarray.IndexedSlices):
-                gpu_op.sgd_update( weight, grad, 1, stream_handle)
+                gpu_op.sgd_update( weight, grad, -1, stream_handle)
             else:
                 gpu_op.matrix_elementwise_add_simple(grad, weight, weight, stream_handle)
         elif isinstance(grad, ndarray.IndexedSlices):
             if DNNL_LIB['cpu_SGDOptimizerSparseUpdate']:
-                cpu_links.sgd_update_sparse(weight, grad.indices, grad.values, 1)
+                cpu_links.sgd_update_sparse(weight, grad.indices, grad.values, -1)
             else:
                 grad.cpu_deduplicate()
                 np_tensor = weight.asnumpy()
@@ -546,6 +547,16 @@ class AdamWOptimizer(Optimizer):
                 self.beta2, self.beta1_t, self.beta2_t, self.epsilon, self.weight_decay, True, stream_handle)
         else:
             raise NotImplementedError
+
+    def sync_state(self, comm, stream_handle):
+        for arr in self.m:
+            if arr is None:
+                continue
+            comm.dlarrayBroadcast(arr, arr, ncclDataType_t.ncclFloat32, 0, stream_handle)
+        for arr in self.v:
+            if arr is None:
+                continue
+            comm.dlarrayBroadcast(arr, arr, ncclDataType_t.ncclFloat32, 0, stream_handle)
 
     def update(self, grads, stream_handle=None):
         assert self.initiated is True

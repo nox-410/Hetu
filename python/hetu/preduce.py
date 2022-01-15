@@ -7,15 +7,46 @@ import numpy as np
 import ctypes
 import random
 
-class PartialReduce:
-    def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
-        # reduce_key : in pipeline case, worker on each stage use a unique key
+class PartialReduceBase:
+    def __init__(self, reduce_key, max_worker, sync_every) -> None:
         self._reduce_key = reduce_key
         self.ps_comm = get_worker_communicate()
         self.comm = wrapped_mpi_nccl_init()
         self._comm_map = {}
         self.rank = self.comm.rank
         self.nrank = self.comm.nrank
+        self.same_group_worker = self._get_same_key_worker(reduce_key)
+        self.comm_all = self.get_communicator(tuple(self.same_group_worker))
+
+    def _get_same_key_worker(self, reduce_key):
+        val = np.zeros(self.nrank)
+        val[self.rank] = reduce_key
+        val = hetu.ndarray.array(val, ctx=gpu(self.comm.device_id))
+        self.comm.dlarrayNcclAllReduce(val, val, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclSum, None)
+        self.comm.stream.sync()
+        val = val.asnumpy()
+        return list(np.where(np.abs(val - reduce_key) < 1e-3)[0])
+
+    def preduce(self, array, partner, stream=None):
+        # array : the array to reduce on
+        # partner : the partial reduce group returned by get_partner
+        # stream : the stream to run allreduce on
+        comm = self.get_communicator(partner, stream)
+        comm.dlarrayNcclAllReduce(array, array, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream)
+
+    def _create_partial_comm(self, partner, stream):
+        self._comm_map[partner] = new_group_comm(partner, stream)
+
+    def get_communicator(self, partner, stream=None):
+        if partner not in self._comm_map.keys():
+            self._create_partial_comm(partner, stream)
+        return self._comm_map[partner]
+
+
+class PartialReduce(PartialReduceBase):
+    def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
+        super(PartialReduce, self).__init__(reduce_key, max_worker, sync_every)
+        # reduce_key : in pipeline case, worker on each stage use a unique key
         self._buffer = np.ascontiguousarray(np.repeat(-1, self.nrank + 2).astype(np.int32))
         self._buffer_ptr = self._buffer.ctypes.data_as(ctypes.c_void_p)
         self._wait_time = 1
@@ -24,7 +55,6 @@ class PartialReduce:
         self._control_flag = False
         self._batch_id = 0
         self._vertical_key = vertical_key if vertical_key >= 0 else self.rank
-
         self.ps_comm.preduce_init(reduce_key, self.rank, max_worker, ssp_bound, sync_every)
 
     def get_partner(self, min_worker=2, sync=False):
@@ -60,17 +90,12 @@ class PartialReduce:
         # print(self._wait_time, result)
         return result
 
-    def preduce(self, array, partner, stream=None):
-        # array : the array to reduce on
-        # partner : the partial reduce group returned by get_partner
-        # stream : the stream to run allreduce on
-        if partner not in self._comm_map.keys():
-            self._create_partial_comm(partner, stream)
-        comm = self._comm_map[partner]
-        comm.dlarrayNcclAllReduce(array, array, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream)
-
-    def _create_partial_comm(self, partner, stream):
-        self._comm_map[partner] = new_group_comm(partner, stream)
+    def remove_partial_comm(self, partner):
+        if not partner in self._comm_map.keys():
+            return
+        elif len(partner) <= 2:
+            return # cached
+        del self._comm_map[partner]
 
     @property
     def mean(self):
@@ -86,24 +111,12 @@ class PartialReduce:
 class ADPSGD:
     def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
         # reduce_key : in pipeline case, worker on each stage use a unique key
-        self.comm = wrapped_mpi_nccl_init()
-        self._comm_map = {}
-        self.rank = self.comm.rank
-        self.nrank = self.comm.nrank
+        super(ADPSGD, self).__init__(reduce_key, max_worker, sync_every)
         self._control_flag = False
         self._batch_id = 0
-        self.sync_every = sync_every
-        self.max_worker = max_worker
         self.rng = random.Random()
         self.rng.seed(0)
 
-        val = np.zeros(self.nrank)
-        val[self.rank] = reduce_key
-        val = hetu.ndarray.array(val, ctx=gpu(self.comm.device_id))
-        self.comm.dlarrayNcclAllReduce(val, val, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclSum, None)
-        self.comm.stream.sync()
-        val = val.asnumpy()
-        self.same_group_worker = list(np.where(np.abs(val - reduce_key) < 1e-3)[0])
         assert len(self.same_group_worker) % 2 == 0
 
     def get_partner(self, min_worker=2, sync=False):
@@ -123,18 +136,6 @@ class ADPSGD:
 
     def async_wait(self, timestamp):
         return timestamp
-
-    def preduce(self, array, partner, stream=None):
-        # array : the array to reduce on
-        # partner : the partial reduce group returned by get_partner
-        # stream : the stream to run allreduce on
-        if partner not in self._comm_map.keys():
-            self._create_partial_comm(partner, stream)
-        comm = self._comm_map[partner]
-        comm.dlarrayNcclAllReduce(array, array, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream)
-
-    def _create_partial_comm(self, partner, stream):
-        self._comm_map[partner] = new_group_comm(partner, stream)
 
     @property
     def mean(self):
