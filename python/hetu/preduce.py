@@ -8,7 +8,7 @@ import ctypes
 import random
 
 class PartialReduceBase:
-    def __init__(self, reduce_key, max_worker, sync_every) -> None:
+    def __init__(self, reduce_key) -> None:
         self._reduce_key = reduce_key
         self.ps_comm = get_worker_communicate()
         self.comm = wrapped_mpi_nccl_init()
@@ -45,7 +45,7 @@ class PartialReduceBase:
 
 class PartialReduce(PartialReduceBase):
     def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
-        super(PartialReduce, self).__init__(reduce_key, max_worker, sync_every)
+        super(PartialReduce, self).__init__(reduce_key)
         # reduce_key : in pipeline case, worker on each stage use a unique key
         self._buffer = np.ascontiguousarray(np.repeat(-1, self.nrank + 2).astype(np.int32))
         self._buffer_ptr = self._buffer.ctypes.data_as(ctypes.c_void_p)
@@ -108,14 +108,15 @@ class PartialReduce(PartialReduceBase):
     def reset_mean(self):
         self._step = 0
 
-class ADPSGD:
+class ADPSGD(PartialReduceBase):
     def __init__(self, reduce_key, max_worker, ssp_bound, sync_every, vertical_key=-1):
         # reduce_key : in pipeline case, worker on each stage use a unique key
-        super(ADPSGD, self).__init__(reduce_key, max_worker, sync_every)
+        super(ADPSGD, self).__init__(reduce_key)
         self._control_flag = False
         self._batch_id = 0
         self.rng = random.Random()
         self.rng.seed(0)
+        self.sync_every = sync_every
 
         assert len(self.same_group_worker) % 2 == 0
 

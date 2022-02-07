@@ -576,6 +576,96 @@ int AdamWOptimizerSparseUpdate(DLArrayHandle param,
     return 0;
 }
 
+__global__ void adamw_scaled_sparse_process(const float* param, float* grad_data,
+    const float* indices_data, float* m,
+    float* v, float* m2, float lr, float beta1, float beta2,
+    float beta1t, float beta2t, float eps,
+    float weight_decay, float scale, size_t size, size_t length) {
+    size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (thread_ind >= size)
+        return;
+    size_t ind = thread_ind / length;
+    size_t offset = thread_ind % length;
+
+    int grad_ind = indices_data[ind];
+    const float cur_grad = grad_data[thread_ind];
+    size_t index = length * grad_ind + offset;
+
+    m[index] = beta1 * m[index] + (1 - beta1) * cur_grad;
+    m2[index] = beta2 * m2[index] + (1 - beta2) * cur_grad;
+    v[index] = beta2 * v[index] + (1 - beta2) * cur_grad * cur_grad;
+    float scaled_v = m2[index] * m2[index] + (v[index] - m2[index] * m2[index]) * scale;
+    float cur_m = m[index] / (1 - beta1t);
+    float cur_v = scaled_v / (1 - beta2t);
+    float update = cur_m / (sqrtf(cur_v) + eps);
+    grad_data[thread_ind] = -lr * (update + weight_decay * param[index]);
+}
+
+__global__ void adamw_scaled_sparse_update(float* param, const float* grad_data,
+    const float* indices_data, float* m,
+    float* v, float* m2, float lr, float beta1, float beta2,
+    float beta1t, float beta2t, float eps,
+    float weight_decay, float scale, size_t size, size_t length) {
+    size_t thread_ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (thread_ind >= size)
+        return;
+    size_t ind = thread_ind / length;
+    size_t offset = thread_ind % length;
+
+    int grad_ind = indices_data[ind];
+    const float cur_grad = grad_data[thread_ind];
+    size_t index = length * grad_ind + offset;
+
+    m[index] = beta1 * m[index] + (1 - beta1) * cur_grad;
+    m2[index] = beta2 * m2[index] + (1 - beta2) * cur_grad;
+    v[index] = beta2 * v[index] + (1 - beta2) * cur_grad * cur_grad;
+    float scaled_v = m2[index] * m2[index] + (v[index] - m2[index] * m2[index]) * scale;
+    float cur_m = m[index] / (1 - beta1t);
+    float cur_v = scaled_v / (1 - beta2t);
+    float update = cur_m / (sqrtf(cur_v) + eps);
+    param[index] -= lr * (update + weight_decay * param[index]);
+}
+
+int AdamWScaledOptimizerSparseUpdate(DLArrayHandle param,
+    const DLArrayHandle grad_indices,
+    DLArrayHandle grad_values,
+    DLArrayHandle expavg, DLArrayHandle expavgsq, DLArrayHandle expavg2,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, float weight_decay, float scale, bool only_process_grad,
+    DLStreamHandle stream_handle = NULL) {
+    size_t size = 1;
+    size_t length = param->shape[1];
+    for (int i = 0; i < grad_values->ndim; ++i) {
+        size *= grad_values->shape[i];
+    }
+
+    dim3 blocks;
+    dim3 threads;
+    float* param_data = (float*)param->data;
+    float* grad_data = (float*)grad_values->data;
+    const float* indices_data = (const float*)grad_indices->data;
+    float* m_data = (float*)expavg->data;
+    float* v_data = (float*)expavgsq->data;
+    float* m2_data = (float*)expavg2->data;
+    if (size <= 1024) {
+        threads.x = size;
+        blocks.x = 1;
+    } else {
+        threads.x = 1024;
+        blocks.x = (size + 1023) / 1024;
+    }
+    cudaStream_t stream = stream_handle ? *(cudaStream_t*)stream_handle->handle : cudaStreamDefault;
+    if (only_process_grad)
+        adamw_scaled_sparse_process << <blocks, threads, 0, stream >> > (
+            param_data, grad_data, indices_data, m_data, v_data, m2_data, lr, beta1,
+            beta2, beta1t, beta2t, eps, weight_decay, scale, size, length);
+    else
+        adamw_scaled_sparse_update << <blocks, threads, 0, stream >> > (
+            param_data, grad_data, indices_data, m_data, v_data, m2_data, lr, beta1,
+            beta2, beta1t, beta2t, eps, weight_decay, scale, size, length);
+    return 0;
+}
+
 __global__ void get_indexed_params(float* indexed_param, const float* param,
     const float* indices_data,
     size_t size, size_t length) {

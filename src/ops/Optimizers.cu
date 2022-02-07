@@ -256,6 +256,64 @@ int AdamWOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
     return 0;
 }
 
+__global__ void adamw_scaled_process(const float* param, float* grad, float* m, float* v, float* m2,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, float weight_decay, float scale, size_t size) {
+    size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ind >= size)
+        return;
+    m[ind] = beta1 * m[ind] + (1 - beta1) * grad[ind];
+    m2[ind] = beta2 * m2[ind] + (1 - beta2) * grad[ind];
+    v[ind] = beta2 * v[ind] + (1 - beta2) * grad[ind] * grad[ind];
+    float scaled_v = m2[ind] * m2[ind] + (v[ind] - m2[ind] * m2[ind]) * scale;
+    float m_local = m[ind] / (1 - beta1t);
+    float v_local = scaled_v / (1 - beta2t);
+    float update = m_local / (sqrtf(v_local) + eps);
+    grad[ind] = -lr * (update + weight_decay * param[ind]);
+}
+
+__global__ void adamw_scaled_update(float* param, const float* grad, float* m, float* v, float* m2,
+    float lr, float beta1, float beta2, float beta1t,
+    float beta2t, float eps, float weight_decay, float scale, size_t size) {
+    size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ind >= size)
+        return;
+    m[ind] = beta1 * m[ind] + (1 - beta1) * grad[ind];
+    m2[ind] = beta2 * m2[ind] + (1 - beta2) * grad[ind];
+    v[ind] = beta2 * v[ind] + (1 - beta2) * grad[ind] * grad[ind];
+    float scaled_v = m2[ind] * m2[ind] + (v[ind] - m2[ind] * m2[ind]) * scale;
+    float m_local = m[ind] / (1 - beta1t);
+    float v_local = scaled_v / (1 - beta2t);
+    float update = m_local / (sqrtf(v_local) + eps);
+    param[ind] = param[ind] - lr * (update + weight_decay * param[ind]);
+}
+
+
+int AdamWScaledOptimizerUpdate(DLArrayHandle param, DLArrayHandle grad,
+    DLArrayHandle expavg, DLArrayHandle expavgsq, DLArrayHandle expavg2, float lr,
+    float beta1, float beta2, float beta1t, float beta2t,
+    float eps, float weight_decay, float scale, bool only_process_grad, DLStreamHandle stream_handle = NULL) {
+    size_t size = 1;
+    for (index_t i = 0; i < param->ndim; ++i) {
+        size *= param->shape[i];
+    }
+    float* param_data = (float*)param->data;
+    float* grad_data = (float*)grad->data;
+    float* m_data = (float*)expavg->data;
+    float* v_data = (float*)expavgsq->data;
+    float* m2_data = (float*)expavg2->data;
+    cudaStream_t stream = stream_handle ? *(cudaStream_t*)stream_handle->handle : cudaStreamDefault;
+    if (only_process_grad)
+        adamw_scaled_process << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
+            param_data, grad_data, m_data, v_data, m2_data, lr, beta1, beta2, beta1t,
+            beta2t, eps, weight_decay, scale, size);
+    else
+        adamw_scaled_update << <DIM_GRID(size), DIM_BLOCK, 0, stream >> > (
+            param_data, grad_data, m_data, v_data, m2_data, lr, beta1, beta2, beta1t,
+            beta2t, eps, weight_decay, scale, size);
+    return 0;
+}
+
 __global__ void calc_lamb_update(float* update, const float* grad, float* m, float* v,
     float beta1, float beta2, float beta1t,
     float beta2t, float eps, size_t size) {

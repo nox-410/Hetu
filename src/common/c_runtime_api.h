@@ -679,6 +679,17 @@ HETUSYS_EXTERN_C {
         float lr, float beta1, float beta2, float beta1t, float beta2t,
         float eps, float weight_decay, bool only_process_grad,
         DLStreamHandle stream_handle);
+    int AdamWScaledOptimizerUpdate(
+        DLArrayHandle param, DLArrayHandle grad, DLArrayHandle expavg,
+        DLArrayHandle expavgsq, DLArrayHandle expavg2, float lr, float beta1,
+        float beta2, float beta1t, float beta2t, float eps, float weight_decay,
+        float scale, bool only_process_grad, DLStreamHandle stream_handle);
+    int AdamWScaledOptimizerSparseUpdate(
+        DLArrayHandle param, const DLArrayHandle grad_indices,
+        DLArrayHandle grad_values, DLArrayHandle expavg, DLArrayHandle expavgsq,
+        DLArrayHandle expavg2, float lr, float beta1, float beta2, float beta1t,
+        float beta2t, float eps, float weight_decay, float scale,
+        bool only_process_grad, DLStreamHandle stream_handle);
 
     int LambOptimizerUpdate(DLArrayHandle param, const DLArrayHandle grad,
                             DLArrayHandle expavg, DLArrayHandle expavgsq,

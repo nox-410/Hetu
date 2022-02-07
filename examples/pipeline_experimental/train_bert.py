@@ -68,7 +68,8 @@ if __name__ == "__main__":
     model = BertForPreTraining(config=config)
     _,_,masked_lm_loss_mean, next_sentence_loss_mean, loss = model(device_list)
     lr_scheduler = get_lr_scheduler(args.learning_rate, decay=1.0, decay_step=1, warmup_step=2000)
-    opt = ht.optim.AdamWOptimizer(learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
+    opt = ht.optim.AdamWScaledOptimizer(num_data_parallel, learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
+    # opt = ht.optim.AdamWOptimizer(learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
     with ht.context(device_list[-1]):
         train_op = opt.minimize(loss)
         executor = ht.Executor({"train" : [loss, masked_lm_loss_mean, next_sentence_loss_mean, train_op]},

@@ -10,7 +10,7 @@ from .gpu_ops.EmbeddingLookUp import EmbeddingLookUp_Gradient
 from .gpu_ops.ParameterServerCommunicate import ParameterServerCommunicateOp
 from .gpu_ops.Variable import PlaceholderOp
 from . import cpu_links
-from .communicator.mpi_nccl_comm import ncclDataType_t
+from .communicator.mpi_nccl_comm import ncclDataType_t, ncclRedOp_t
 from ._base import DNNL_LIB
 
 class Optimizer(object):
@@ -509,6 +509,77 @@ class AdamOptimizer(Optimizer):
                             self.learning_rate * mc / \
                             (np.sqrt(vc) + self.epsilon)
 
+class AdamWScaledOptimizer(Optimizer):
+    def __init__(self, num_data_parallel, learning_rate=0.01, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0):
+        super(AdamWScaledOptimizer, self).__init__(learning_rate)
+        self.beta1 = beta1
+        self.beta1_t = 1.0
+        self.beta2 = beta2
+        self.beta2_t = 1.0
+        self.epsilon = epsilon
+        self.weight_decay = weight_decay
+        self.name = "AdamWScaled"
+        self.count = 0
+        self.scale_rate = 1.0 / float(num_data_parallel)
+
+    def get_config(self):
+        return (ctypes.c_int(5), (ctypes.c_float * 5)(self.learning_rate, self.beta1, self.beta2, self.epsilon, self.weight_decay), ctypes.c_int(5))
+
+    def initiate_states(self, config):
+        super().initiate_states(config)
+        self.m = []
+        self.v = []
+        self.m2 = []
+        for t in self.tensors:
+            self.m.append(None if t is None else ndarray.array(
+                np.zeros(t.shape), t.ctx))
+            self.v.append(None if t is None else ndarray.array(
+                np.zeros(t.shape), t.ctx))
+            self.m2.append(None if t is None else ndarray.array(
+                np.zeros(t.shape), t.ctx))
+
+    def process_gradient(self, node, grad, stream_handle=None):
+        i = self.params.index(node)
+        if self.count % len(self.params) == 0:
+            self.beta1_t *= self.beta1
+            self.beta2_t *= self.beta2
+        self.count += 1
+        weight = self.tensors[i]
+        if ndarray.is_gpu_ctx(weight.ctx) and isinstance(grad, (ndarray.NDArray, ndarray.IndexedSlices)):
+            gpu_op.adamw_sacled_update(weight, grad, self.m[i], self.v[i], self.m2[i], self.learning_rate, self.beta1,
+                self.beta2, self.beta1_t, self.beta2_t, self.epsilon, self.weight_decay, self.scale_rate, True, stream_handle)
+        else:
+            raise NotImplementedError
+
+    def sync_state(self, comm, stream_handle):
+        for arr in self.m2:
+            if arr is None:
+                continue
+            comm.dlarrayNcclAllReduce(arr, arr, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream_handle)
+        for arr in self.v:
+            if arr is None:
+                continue
+            comm.dlarrayNcclAllReduce(arr, arr, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream_handle)
+
+    def update(self, grads, stream_handle=None):
+        assert self.initiated is True
+        params_size = len(self.tensors)
+        assert params_size == len(grads)
+        self.beta1_t *= self.beta1
+        self.beta2_t *= self.beta2
+        for i in range(params_size):
+            if grads[i] == None:
+                continue
+            if self.params[i].on_gpu:
+                assert isinstance(self.tensors[i], ndarray.NDArray)
+                assert isinstance(
+                    grads[i], (ndarray.NDArray, ndarray.IndexedSlices))
+                assert isinstance(self.m[i], ndarray.NDArray)
+                assert isinstance(self.v[i], ndarray.NDArray)
+                gpu_op.adamw_sacled_update(self.tensors[i], grads[i], self.m[i], self.v[i], self.m2[i], self.learning_rate, self.beta1,
+                                   self.beta2, self.beta1_t, self.beta2_t, self.epsilon, self.weight_decay, self.scale_rate, False, stream_handle)
+            else:
+                raise NotImplementedError
 
 class AdamWOptimizer(Optimizer):
     def __init__(self, learning_rate=0.01, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0):
@@ -552,11 +623,11 @@ class AdamWOptimizer(Optimizer):
         for arr in self.m:
             if arr is None:
                 continue
-            comm.dlarrayBroadcast(arr, arr, ncclDataType_t.ncclFloat32, 0, stream_handle)
+            comm.dlarrayNcclAllReduce(arr, arr, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream_handle)
         for arr in self.v:
             if arr is None:
                 continue
-            comm.dlarrayBroadcast(arr, arr, ncclDataType_t.ncclFloat32, 0, stream_handle)
+            comm.dlarrayNcclAllReduce(arr, arr, ncclDataType_t.ncclFloat32, ncclRedOp_t.ncclAvg, stream_handle)
 
     def update(self, grads, stream_handle=None):
         assert self.initiated is True
