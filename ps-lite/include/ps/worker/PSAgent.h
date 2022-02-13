@@ -436,11 +436,13 @@ public:
         TensorMeta &meta = _id2meta[name];
         /* send pull request to each partition */
         auto cb = getCallBack<ParamInit>();
+        size_t offset = 0;
         for (size_t i = 0; i < meta.keys.size(); i++) {
             PSFData<ParamInit>::Request request(
                 meta.keys[i], meta.ptype, meta.part[i], meta.width, init_type,
-                init_a, init_b, seed, otype, lrs);
+                init_a, init_b, seed, offset, otype, lrs);
             meta.ts.push_back(_kvworker.Request<ParamInit>(request, cb));
+            offset += meta.part[i] * meta.width;
         }
     }
 
