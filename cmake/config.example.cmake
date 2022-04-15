@@ -5,7 +5,7 @@
 # hetu main version, choose from (mkl, gpu, all)
 # if using mkl (for CPU) or all, OpenMP(*), mkl required
 # if using gpu or all, OpenMP(*), CUDA(*), CUDNN(*) required
-set(HETU_VERSION "all")
+set(HETU_VERSION "gpu")
 
 # whether to compile allreduce module
 # nccl(*), openmpi required
@@ -17,15 +17,15 @@ set(HETU_PS ON)
 
 # whether to compile geometric module (for GNNs)
 # pybind11(*), metis(*) required
-set(HETU_GEOMETRIC ON)
+set(HETU_GEOMETRIC OFF)
 
 # whether to compile cache module (for PS)
 # to enable this, you must turn HETU_PS on
 # pybind11(*) required
-set(HETU_CACHE ON)
+set(HETU_CACHE OFF)
 
 # whether to compile Hetu ML Module
-set(HETU_ML ON)
+set(HETU_ML OFF)
 set(HETU_PARALLEL_ML ON)
 
 ######################
@@ -38,7 +38,7 @@ set(CUDAToolkit_ROOT /usr/local/cuda)
 # NCCL version >= 2.8
 set(NCCL_ROOT $ENV{CONDA_PREFIX})
 
-set(CUDNN_ROOT)
+set(CUDNN_ROOT $ENV{CONDA_PREFIX})
 
 # MPI version >= 3.1 (OpenMPI version >= 4.0.3)
 # if valid version not found, we'll download and compile it in time (openmpi-4.0.3)
