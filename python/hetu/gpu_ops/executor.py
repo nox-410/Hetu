@@ -1144,6 +1144,7 @@ class SubExecutor(object):
                         node.event.record(self.comp_stream)
                 elif isinstance(node, OptimizerOp):
                     if self.config.use_preduce:
+                        self.preduce.remove_partial_comm(self.preduce_partner)
                         self.preduce_partner = None # renew partner for the next iteration
                     else:
                         node.compute(input_vals, node_val, self.comp_stream)

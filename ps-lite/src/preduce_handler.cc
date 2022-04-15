@@ -91,6 +91,93 @@ public:
         return std::make_pair(result, should_stop);
     }
 
+    std::pair<std::vector<int>, bool>
+    getPartnerPairWise(int rank, int vertical_rank, size_t batch_id, float wait_time) {
+        std::unique_lock<std::mutex> lock(mtx_);
+        // must wait until the previous partial reduce decision finish
+        while (critical_count)
+            cv_.wait(lock);
+
+        ready_workers_.push_back(rank);
+        if (key_ == 0 && stop_count_ > 0 && !stopped_workers_.count(rank)) {
+            // when stopped, set the condition so that all worker in the pipe
+            // can see the condition and stop at the same batch id
+            stop_count_--;
+            stopped_workers_.insert(rank);
+            setStopCondition(vertical_rank, batch_id);
+        }
+        const bool should_stop = checkStopCondition(vertical_rank, batch_id);
+        avail_workers_.insert(rank);
+        if (ready_workers_.size() == 1) {
+            do_graph_sync_ = checkSyncType(key_, need_graph_sync_);
+            if (avail_workers_.size() < max_workers_)
+                do_graph_sync_ = false;
+            // the first worker should set the wait time for others
+            wake_time_ =
+                system_clock::now() + microseconds(int(wait_time * 1000));
+        }
+        if (do_graph_sync_) {
+            if (DisjointSetCanBeMergedBy(ready_workers_)) {
+                cv_.notify_all();
+            } else {
+                while (!DisjointSetCanBeMergedBy(ready_workers_))
+                    cv_.wait(lock);
+            }
+        } else {
+            if (ready_workers_.size() == max_workers_) {
+                // if worker number is enough, notify all
+                cv_.notify_all();
+            } else {
+                while (ready_workers_.size() < max_workers_
+                       && cv_.wait_until(lock, wake_time_)
+                              == std::cv_status::no_timeout) {
+                }
+            }
+        }
+        // the first worker awake set the critical count
+        if (!critical_count) {
+            critical_count = ready_workers_.size();
+            std::sort(ready_workers_.begin(), ready_workers_.end());
+        }
+        std::vector<int> result = ready_workers_;
+        if (!do_graph_sync_) {
+            for (int i = 0; i < ready_workers_.size(); i++) {
+                if (ready_workers_[i] == rank) {
+                    if (i % 2 == 1)
+                        result = {ready_workers_[i-1], rank};
+                    else if (i + 1 < ready_workers_.size())
+                        result = {rank, ready_workers_[i+1]};
+                    else
+                        result = {rank};
+                    break;
+                }
+            }
+        }
+        critical_count--;
+        if (should_stop)
+            avail_workers_.erase(rank);
+        // if being the last thread, clear the state
+        if (critical_count == 0) {
+            if (do_graph_sync_) {
+                DisjointSetReset();
+                unlockSyncStage();
+                need_graph_sync_ = false;
+            }
+            size_t accum = accumulated_updates_ + ready_workers_.size();
+            if (accum / ssp_bound_ > accumulated_updates_ / ssp_bound_)
+                need_graph_sync_ = true;
+            if (accum / sync_every_ > accumulated_updates_ / sync_every_) {
+                stop_count_ = max_workers_;
+                stopped_workers_.clear();
+            }
+            accumulated_updates_ = accum;
+            ready_workers_.clear();
+            cv_.notify_all();
+        }
+        return std::make_pair(result, should_stop);
+    }
+
+
     // register worker for initialization
     void registerWorker(int rank) {
         std::unique_lock<std::mutex> lock(mtx_);
@@ -105,6 +192,8 @@ public:
 
     int critical_count = 0; // stop new worker from coming in, when the previous
                             // schedule is finishing
+
+    inline size_t getMaxWorkers() { return max_workers_; }
 private:
     // checkSyncType make sure only one key can do graph sync
     static bool checkSyncType(int key, bool graph_sync) {
@@ -142,6 +231,16 @@ private:
             if (DisjointSetFind(p.first) != head)
                 return false;
         }
+        return true;
+    }
+    bool DisjointSetCanBeMergedBy(std::vector<int> x) {
+        std::unordered_map<int, bool> covered;
+        for (const auto &p : map_)
+            covered[DisjointSetFind(p.first)] = false;
+        for (const auto &node : x)
+            covered[DisjointSetFind(node)] = true;
+        for (const auto &p : covered)
+            if (!p.second) return false;
         return true;
     }
     int DisjointSetFind(int x) {
@@ -210,8 +309,12 @@ void PSHandler<PsfGroup::kPReduceScheduler>::serve(
     CHECK(map_.count(k));
     std::unique_ptr<ReduceStat> &obj = map_[k];
     map_mtx_.unlock();
-
-    auto result = obj->getPartner(rank, vertical_rank, batch_id, wait_time);
+    std::pair<std::vector<int>, bool> result;
+    if (obj->getMaxWorkers() > 8) {
+        result = obj->getPartnerPairWise(rank, vertical_rank, batch_id, wait_time);
+    } else {
+        result = obj->getPartner(rank, vertical_rank, batch_id, wait_time);
+    }
     // write return value
     get<0>(response).CopyFrom(result.first.data(), result.first.size());
     get<1>(response) = static_cast<int>(result.second);

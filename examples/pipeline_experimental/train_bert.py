@@ -30,7 +30,7 @@ if __name__ == "__main__":
     # argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--batch-size', type=int, default=5)
+    parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--pipeline', type=str, default="pipedream")
     parser.add_argument('--learning-rate', type=float, default=1e-4)
     parser.add_argument('--preduce', action='store_true')
@@ -68,12 +68,12 @@ if __name__ == "__main__":
     model = BertForPreTraining(config=config)
     _,_,masked_lm_loss_mean, next_sentence_loss_mean, loss = model(device_list)
     lr_scheduler = get_lr_scheduler(args.learning_rate, decay=1.0, decay_step=1, warmup_step=2000)
-    opt = ht.optim.AdamWScaledOptimizer(num_data_parallel, learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
-    # opt = ht.optim.AdamWOptimizer(learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
+    # opt = ht.optim.AdamWScaledOptimizer(num_data_parallel, learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
+    opt = ht.optim.AdamWOptimizer(learning_rate=lr_scheduler, beta1=0.9, beta2=0.999, epsilon=1e-7, weight_decay=0.01)
     with ht.context(device_list[-1]):
         train_op = opt.minimize(loss)
         executor = ht.Executor({"train" : [loss, masked_lm_loss_mean, next_sentence_loss_mean, train_op]},
-            seed=0, pipeline=args.pipeline, use_preduce=args.preduce, use_adpsgd=args.adpsgd, dynamic_memory=True, use_sparse_pull=False)
+            bsp = 0, seed=0, pipeline=args.pipeline, use_preduce=args.preduce, use_adpsgd=args.adpsgd, dynamic_memory=True, use_sparse_pull=False)
 
     if executor.config.pipeline_dp_rank == 0:
         writer = get_tensorboard_writer(args.name)

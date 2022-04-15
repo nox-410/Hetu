@@ -156,7 +156,7 @@ class SubExecutor4Pipedream(object):
             self.grad_accum_map = {} # map weight node to gradients
             self.h2d_map = {} # map weight to d2h node
             self.skip_h2d = set()
-            self.ps_comm.ssp_init(config.pipeline_rank, config.nrank // config.pipeline_nrank, 10)
+            # self.ps_comm.ssp_init(config.pipeline_rank, config.nrank // config.pipeline_nrank, 10)
             self.ssp_version = 0
             for node in self.topo_order:
                 if isinstance(node, DataH2DOp) and isinstance(node.inputs[0], PlaceholderOp) and node.inputs[0].trainable:
@@ -314,6 +314,7 @@ class SubExecutor4Pipedream(object):
             self.skip_h2d.add(h2d_node)
         matrix_elementwise_multiply_by_const(dst_tensor,
             self.config.pipeline_nrank / self.config.nrank, dst_tensor, self.comp_stream)
+        self.comp_stream.sync()
 
     def run(self, eval_node_list, feed_dict_list, convert_to_numpy_ret_vals, batch_num):
         if not self.preduce:
@@ -395,9 +396,9 @@ class SubExecutor4Pipedream(object):
                 self.opt.optimizer.update_tensors_version(
                     dict([(weight, self.batch_to_tensor_maps[batch_id][h2d])
                         for (weight, h2d) in self.h2d_map.items()]))
-                if cur_schedule == 1:
-                    self.config.ps_comm.ssp_sync(self.config.pipeline_rank, self.ssp_version)
-                    self.ssp_version += 1
+                # if cur_schedule == 1:
+                #     self.config.ps_comm.ssp_sync(self.config.pipeline_rank, self.ssp_version)
+                #     self.ssp_version += 1
             else:
                 self.opt.optimizer.update_tensors_version(self.batch_to_tensor_maps[batch_id])
             # compute, same logic for backward and forward
@@ -449,10 +450,10 @@ class SubExecutor4Pipedream(object):
                     if self.config.pipeline == "hetpipe" and node in self.skip_h2d:
                         self.skip_h2d.remove(node)
                     else:
-                        node.compute(input_vals, node_val, self.h2d_stream)
+                        node.compute(input_vals, node_val, self.comp_stream)
 
                 elif isinstance(node, (DataD2HOp, DataD2HSparseOp)):
-                    node.compute(input_vals, node_val, self.d2h_stream)
+                    node.compute(input_vals, node_val, self.comp_stream)
 
                 elif isinstance(node, AllReduceCommunicateOp):
                     if self.config.use_preduce:
@@ -480,7 +481,8 @@ class SubExecutor4Pipedream(object):
                 elif isinstance(node, OptimizerOp):
                     if self.config.use_preduce:
                         pass
-                    else:
+                        # self.preduce.remove_partial_comm(self.preduce_partner)
+                    elif self.config.pipeline != "hetpipe":
                         for weight_node in self.config.placeholder_to_arr_map:
                             self.copy_latest_weight(weight_node)
                         node.compute(input_vals, node_val, self.comp_stream)
